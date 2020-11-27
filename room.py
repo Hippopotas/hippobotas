@@ -1,0 +1,59 @@
+import asyncio
+
+from constants import ANIME_ROOM, LEAGUE_ROOM
+from user import User 
+from trivia import TriviaGame
+
+
+def trivia_leaderboard_msg(leaderboard, title):
+    msg = ('/adduhtml tleaderboard, '
+           '<center><table><tr><th colspan=\'3\' style=\'border-bottom:1px solid\'>'
+           '{}</th></tr>'.format(title))
+
+    for i, [user, score] in enumerate(leaderboard):
+        msg += '<tr><td>{}</td><th>{}</th><td>{} pts</td></tr>'.format(i+1, user, int(score))
+
+    msg += '</table></center>'
+    return msg
+
+
+class Room:
+	def __init__(self, room):
+		self.roomname = room
+		self.trivia = TriviaGame(self.roomname)
+
+	async def trivia_game(self, putter, n=10, points=1, diff=3, categories=['all'],
+						  by_rating=False):
+		try:
+			await self.trivia.start(n, points, diff, categories, by_rating)
+
+			for _ in range(n):
+				await asyncio.sleep(5)
+
+				curr_question = await self.trivia.questions.questions.get()
+				self.trivia.answers = curr_question[1]
+				await putter(self.roomname + '|' + curr_question[0])
+
+				await self.trivia.correct.wait()
+
+				self.trivia.correct.clear()
+		except asyncio.CancelledError:
+			for task in asyncio.all_tasks():
+				if task.get_name() == 'tquestions-{}'.format(self.roomname):
+					task.cancel()
+					break
+
+			print('Trivia stopped early.')
+		finally:
+			leaderboard = self.trivia.leaderboard()
+			
+			await self.trivia.end(putter)
+			await asyncio.sleep(1)
+
+			msg = trivia_leaderboard_msg(leaderboard, 'Semi-weekly Trivia Leaderboard')
+			# No persistent scores for the animeandmanga room.
+			if self.roomname == ANIME_ROOM:
+				msg = trivia_leaderboard_msg(leaderboard, 'Round Standings')
+				self.trivia = TriviaGame(self.roomname)
+
+			await putter(self.roomname + '|' + msg)
