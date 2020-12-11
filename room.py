@@ -1,14 +1,14 @@
 import asyncio
 
 from constants import ANIME_ROOM, LEAGUE_ROOM
-from user import User 
+from user import User
 from trivia import TriviaGame
 
 
-def trivia_leaderboard_msg(leaderboard, title):
-    msg = ('/adduhtml tleaderboard, '
-           '<center><table><tr><th colspan=\'3\' style=\'border-bottom:1px solid\'>'
-           '{}</th></tr>'.format(title))
+def trivia_leaderboard_msg(leaderboard, title, name='tleaderboard'):
+    msg = (f'/adduhtml {name}, '
+            '<center><table><tr><th colspan=\'3\' style=\'border-bottom:1px solid\'>'
+            '{}</th></tr>'.format(title))
 
     for i, [user, score] in enumerate(leaderboard):
         msg += '<tr><td>{}</td><th>{}</th><td>{} pts</td></tr>'.format(i+1, user, int(score))
@@ -22,8 +22,8 @@ class Room:
 		self.roomname = room
 		self.trivia = TriviaGame(self.roomname)
 
-	async def trivia_game(self, putter, n=10, points=1, diff=3, categories=['all'],
-						  by_rating=False):
+	async def trivia_game(self, putter, i_putter, n=10, points=1, diff=3,
+						  categories=['all'], by_rating=False, autoskip=0):
 		try:
 			await self.trivia.start(n, points, diff, categories, by_rating)
 
@@ -32,7 +32,13 @@ class Room:
 
 				curr_question = await self.trivia.questions.questions.get()
 				self.trivia.answers = curr_question[1]
+
+				# Autoskip handling
+				if autoskip:
+					asyncio.create_task(self.trivia.autoskip(autoskip, i_putter))
+
 				await putter(self.roomname + '|' + curr_question[0])
+				self.trivia.q_active.set()
 
 				await self.trivia.correct.wait()
 

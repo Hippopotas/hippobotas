@@ -52,6 +52,7 @@ def gen_uhtml_img_code(url, height_resize=300, width_resize=None):
 class TriviaGame:
     def __init__(self, room):
         self.active = False
+        self.q_active = asyncio.Event()
         self.correct = asyncio.Event()
         self.answers = []
 
@@ -62,6 +63,18 @@ class TriviaGame:
         self.scoreboard = pd.read_csv('trivia/{}.txt'.format(self.room))
         if self.room == ANIME_ROOM:
             self.scoreboard = pd.DataFrame(columns=['user', 'score'])
+
+    async def autoskip(self, skip_time, putter):
+        while self.active:
+            await self.q_active.wait()
+            answer = self.answers[0]
+            self.q_active.clear()
+
+            await asyncio.sleep(skip_time)
+
+            curr_time = int(time.time())
+            await putter(f'>{self.room}\n'
+                         f'|c:|{curr_time}|*hippobotas|{answer}')
 
     def reset_scoreboard(self, length=60*60*24*3):
         timer = self.scoreboard[self.scoreboard['user'] == TIMER_USER]

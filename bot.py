@@ -27,6 +27,9 @@ SUCKLIST = {}
 ROOMLIST = {}
 WS = None
 
+INCOMING = None
+OUTGOING = None
+
 
 def is_int_str(s):
     '''
@@ -85,7 +88,8 @@ def trivia_arg_parser(s):
     parser.add_argument('-c', '--categories', nargs='*', default=['all'])
     parser.add_argument('-d', '--diff', type=int, default=3)
     parser.add_argument('-p', '--points', type=int, default=1)
-    parser.add_argument('-s', '--byrating', action='store_true')
+    parser.add_argument('-r', '--byrating', action='store_true')
+    parser.add_argument('-s', '--autoskip', type=int, default=0)
     parser.add_argument('len', type=int)
 
     args = None
@@ -129,6 +133,10 @@ def check_answer(guess, answers):
         for part in answer_parts:
             total += part.lower()
             acceptable.append(total)
+        
+        if ":" in answer:
+            prefix = answer.split(':')[0]
+            acceptable.append(User.find_true_name(prefix))
 
         if len(t_guess) >= 8 and t_guess in acceptable:
             return answer
@@ -152,7 +160,7 @@ async def listener(putter, uri):
             await putter(msg)
 
 
-async def interpreter(getter, putter):
+async def interpreter(getter, putter, i_putter):
     '''
     Gets messages from the incoming queue and acts on them.
 
@@ -160,6 +168,8 @@ async def interpreter(getter, putter):
         getter (method): Queue.get for the incoming queue
         putter (method): Queue.put for the outgoing queue,
                          to send any necessary responses
+        i_putter (method): Queue.put for the incoming queue.
+                           Useful for self-sending.
     '''
     while True:
         msg = await getter()
@@ -167,16 +177,18 @@ async def interpreter(getter, putter):
         print('Message: ')
         print(msg)
 
-        await message_handler(msg, putter)
+        await message_handler(msg, putter, i_putter)
 
 
-async def message_handler(msg, putter):
+async def message_handler(msg, putter, i_putter):
     '''
     Acts on websocket messages, depending on their contents.
 
     Args:
         msg (str): A message from the websocket
         putter (method): Queue.put for the outgoing queue to the websocket.
+        i_putter (method): Queue.put for the incoming queue.
+                           Useful for self-sending.
     '''
     global ROOMLIST
 
@@ -210,7 +222,7 @@ async def message_handler(msg, putter):
         if parts[1] == 'pm':
             is_pm = True
             caller = parts[2]
-        await command_center(curr_room, caller, parts[4], putter, pm=is_pm)
+        await command_center(curr_room, caller, parts[4], putter, i_putter, pm=is_pm)
 
     # Trivia guesses
     elif parts[1] == 'c:':
@@ -222,7 +234,7 @@ async def message_handler(msg, putter):
         
         # ]tg is/was also a valid invocation for guessing. This is a neat shortcut.
         if t_active:
-            await command_center(curr_room, parts[3], ']tg {}'.format(parts[4]), putter)
+            await command_center(curr_room, parts[3], ']tg {}'.format(parts[4]), putter, i_putter)
 
 
 async def login(keyword, putter):
@@ -272,7 +284,7 @@ async def login_check(name, logged_in, putter):
             await putter('|/join ' + room)
 
 
-async def command_center(room, caller, command, putter, pm=False):
+async def command_center(room, caller, command, putter, i_putter, pm=False):
     '''
     Handles command messages targeted at the bot.
 
@@ -282,10 +294,13 @@ async def command_center(room, caller, command, putter, pm=False):
         command (str): The entire message sent by the user
         putter (method): Queue.put method for the outgoing queue, in case
                          a message response is necessary
+        i_putter (method): Queue.put method for the incoming queue.
+                           Useful for self-sending.
         pm (bool): Whether or not the command came via PM
     '''
     global ROOMLIST
     global SUCKLIST
+    global USERNAME
     
     msg = ''
     true_caller = User.find_true_name(caller)
@@ -360,21 +375,29 @@ async def command_center(room, caller, command, putter, pm=False):
     # Suck
     elif command[0] == 'suck':
         scount = 0
-        sp_text = ''
         suckinfo = SUCKLIST[SUCKLIST['user'] == true_caller]
-        if true_caller == 'hippopotas':
+        if len(command) > 1:
+            if command[1] == 'top' and not pm:
+                suckboard = SUCKLIST.sort_values('count', ascending=False)
+                suckboard = suckboard[suckboard['user'] != TIMER_USER].head(n=5).values.tolist()
+                msg = trivia_leaderboard_msg(suckboard, 'Suckiest', name='suckboard')
+
+                await putter(room + '|' + msg)
+                return
+        elif true_caller == 'hippopotas':
             scount = 69420
+            msg = '{} has sucked {} times'.format(caller, str(scount))
         elif true_caller == 'hipposfavorite':
             scount = -1
-            sp_text = 'You are the best. Congrats!'
-        else:
+            msg = '{} has sucked {} times. You are the best. Congrats!'.format(caller, str(scount))
+        elif pm:
             if suckinfo.empty:
                 suckinfo = pd.DataFrame([[true_caller, 0]],
                                         columns=['user', 'count'])
                 SUCKLIST = SUCKLIST.append(suckinfo)
             
             # There's a global cooldown of a random number between
-            # 5 and 30 minutes.
+            # 15 and 90 minutes.
             end_time = SUCKLIST.loc[SUCKLIST['user'] == TIMER_USER, 'count'][0]
             if time.time() > end_time:
                 SUCKLIST.loc[SUCKLIST['user'] == true_caller, 'count'] += 1
@@ -384,8 +407,9 @@ async def command_center(room, caller, command, putter, pm=False):
                 SUCKLIST.loc[SUCKLIST['user'] == true_caller, 'count'] = 0
                 scount = 0
 
+            msg = '{} has sucked {} times.'.format(caller, str(scount))
+
         SUCKLIST.to_csv('suck.txt', index=False)
-        msg = '{} has sucked {} times. {}'.format(caller, str(scount), sp_text)
     
     # Trivia
     elif command[0] == 'trivia' and not pm:
@@ -408,11 +432,13 @@ async def command_center(room, caller, command, putter, pm=False):
                 msg = 'Starting a round of trivia with {} questions, each ' \
                       'worth {} points. Type your answers to guess!'.format(args.len, args.points)
                 asyncio.create_task(ROOMLIST[room].trivia_game(putter,
+                                                               i_putter,
                                                                args.len,
                                                                args.points,
                                                                args.diff,
                                                                args.categories,
-                                                               args.byrating),
+                                                               args.byrating,
+                                                               args.autoskip),
                                     name='trivia-{}'.format(room))
         elif (command[1] == 'stop' or command[1] =='end') and User.compare_ranks(caller[0], '%'):
             if trivia_status:
@@ -474,9 +500,14 @@ async def command_center(room, caller, command, putter, pm=False):
                         answer_check = answer
                         break
             if answer_check:
-                msg = '{} wins. The answer was {}.'.format(caller, answer_check)
+                msg = f'{caller} wins.'
+                if true_caller == USERNAME:
+                    msg = 'Question skipped.'
+                else:
+                    trivia_game.update_scores(true_caller)
 
-                trivia_game.update_scores(true_caller)
+                msg += f' The answer was {answer_check}.'
+
                 trivia_game.correct.set()
                 trivia_game.answers = []
 
@@ -518,17 +549,17 @@ if __name__ == "__main__":
     loop = asyncio.get_event_loop()
     loop.set_debug(True)
 
-    incoming = asyncio.Queue()
-    outgoing = asyncio.Queue()
+    INCOMING = asyncio.Queue()
+    OUTGOING = asyncio.Queue()
 
     try:
-        loop.run_until_complete(asyncio.wait((listener(incoming.put, PS_SOCKET),
-                                            interpreter(incoming.get, outgoing.put),
-                                            sender(outgoing.get))))
+        loop.run_until_complete(asyncio.wait((listener(INCOMING.put, PS_SOCKET),
+                                            interpreter(INCOMING.get, OUTGOING.put, INCOMING.put),
+                                            sender(OUTGOING.get))))
     except:
         # Useful for debugging, since I can't figure out how else
         # to make async stuff return the actual error.
         import traceback
         traceback.print_exc()
-
-    loop.close()
+    finally:
+        loop.close()
