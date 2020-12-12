@@ -132,13 +132,14 @@ def check_answer(guess, answers):
         total=''
         for part in answer_parts:
             total += part.lower()
-            acceptable.append(total)
+            if len(total) >= 8:
+                acceptable.append(total)
         
         if ":" in answer:
             prefix = answer.split(':')[0]
             acceptable.append(User.find_true_name(prefix))
 
-        if len(t_guess) >= 8 and t_guess in acceptable:
+        if t_guess in acceptable:
             return answer
 
     return ''
@@ -513,7 +514,7 @@ async def command_center(room, caller, command, putter, i_putter, pm=False):
 
     elif command[0] == 'skip' and not pm:      # Trivia skip alias
         new_command = ']trivia ' + ' '.join(command)
-        await command_center(room, caller, new_command, putter)
+        await command_center(room, caller, new_command, putter, i_putter)
         return
 
     if msg == '':

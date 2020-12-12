@@ -138,19 +138,19 @@ async def mal_user_rand_series(putter, username, caller, media):
                 if series_list:
                     all_series_list += series_list[medium]
                 else:
-                    await putter(ANIME_ROOM + '|Could not find {}\'s '
-                                            '{}list'.format(username, medium))
+                    await putter(f'{ANIME_ROOM}|Could not find {username}\'s {medium}list.')
                     return
                 
                 page += 1
                 await asyncio.sleep(0.5)    # Jikan rate-limits to 2 requests/second.
 
     if not all_series_list:
-        await putter(ANIME_ROOM + '|No series on {}\'s {}list.'.format(username, medium))
+        await putter(f'{ANIME_ROOM}|No series on {username}\'s {medium}list.')
         return
 
     rand_series = random.choice(all_series_list)
-    await putter(ANIME_ROOM + '|You rolled: {}'.format(rand_series['title']))
+    rand_title = rand_series['title']
+    await putter(f'{ANIME_ROOM}|{caller} rolled: {rand_title}')
 
 
 class User:

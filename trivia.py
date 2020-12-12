@@ -248,11 +248,12 @@ class QuestionList:
             if not valid_series:
                 continue
 
-            aliases = series_data['title_synonyms']
-            if series_data['title_english']:
-                aliases.append(series_data['title_english'])
+            aliases = []
             if series_data['title']:
                 aliases.append(series_data['title'])
+            if series_data['title_english']:
+                aliases.append(series_data['title_english'])
+            aliases += series_data['title_synonyms']
 
             return {'img_url': series_data['image_url'],
                     'answers': aliases,
