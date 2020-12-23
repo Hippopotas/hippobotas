@@ -11,7 +11,7 @@ from trivia import gen_uhtml_img_code
 
 
 async def get_mal_user(username):
-    async with aiohttp.ClientSession() as session:
+    async with aiohttp.ClientSession(trust_env=True) as session:
         while True:
             async with session.get(JIKAN_API + 'user/{}'.format(username)) as r:
                 resp = await r.text()

@@ -70,6 +70,8 @@ def mal_arg_parser(s, caller):
     # Incorrectly formatted input results in args = None
     except SystemExit:
         pass
+    except ValueError:
+        return
 
     return args
 
@@ -99,6 +101,8 @@ def trivia_arg_parser(s):
     # Incorrectly formatted input results in args = None
     except SystemExit:
         pass
+    except ValueError:
+        return
 
     return args
 
@@ -153,12 +157,16 @@ async def listener(putter, uri):
         putter (method): Queue.put for the relevant queue
         uri (str): websocket to connect to
     '''
-    async with websockets.connect(uri) as ws:
-        # The same websocket is used to send info back.
-        global WS
-        WS = ws
-        async for msg in ws:
-            await putter(msg)
+    try:
+        async with websockets.connect(uri) as ws:
+            # The same websocket is used to send info back.
+            global WS
+            WS = ws
+            async for msg in ws:
+                await putter(msg)
+    except:
+        await asyncio.sleep(10)
+        await restart_loop(asyncio.get_event_loop())
 
 
 async def interpreter(getter, putter, i_putter):
@@ -474,7 +482,7 @@ async def command_center(room, caller, command, putter, i_putter, pm=False):
                     to_show = int(command[2])
 
             title = 'Semi-weekly Trivia Leaderboard'
-            if room == ANIME_ROOM:
+            if room == ANIME_ROOM or room == VG_ROOM:
                 title = 'No leaderboard for this room.'
             msg = trivia_leaderboard_msg(trivia_game.leaderboard(n=to_show), title)
         elif command[1] == 'skip' and User.compare_ranks(caller[0], '%'):
@@ -541,6 +549,33 @@ async def sender(getter):
         await WS.send(msg)
 
 
+async def restart_loop(loop):
+    global INCOMING
+    global OUTGOING
+
+    await loop.stop()
+    await loop.close()
+
+    INCOMING = asyncio.Queue()
+    OUTGOING = asyncio.Queue()
+
+    start_loop(loop)
+
+
+def start_loop(loop):
+    try:
+        loop.run_until_complete(asyncio.wait((listener(INCOMING.put, PS_SOCKET),
+                                              interpreter(INCOMING.get, OUTGOING.put, INCOMING.put),
+                                              sender(OUTGOING.get))))
+    except:
+        # Useful for debugging, since I can't figure out how else
+        # to make async stuff return the actual error.
+        import traceback
+        traceback.print_exc()
+    finally:
+        loop.close()
+    
+
 if __name__ == "__main__":
     load_dotenv()
     USERNAME = os.getenv('PS_USERNAME')
@@ -553,14 +588,4 @@ if __name__ == "__main__":
     INCOMING = asyncio.Queue()
     OUTGOING = asyncio.Queue()
 
-    try:
-        loop.run_until_complete(asyncio.wait((listener(INCOMING.put, PS_SOCKET),
-                                            interpreter(INCOMING.get, OUTGOING.put, INCOMING.put),
-                                            sender(OUTGOING.get))))
-    except:
-        # Useful for debugging, since I can't figure out how else
-        # to make async stuff return the actual error.
-        import traceback
-        traceback.print_exc()
-    finally:
-        loop.close()
+    start_loop(loop)

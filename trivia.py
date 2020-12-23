@@ -61,13 +61,13 @@ class TriviaGame:
         self.questions = QuestionList(self.room)
 
         self.scoreboard = pd.read_csv('trivia/{}.txt'.format(self.room))
-        if self.room == ANIME_ROOM:
+        if self.room == ANIME_ROOM or self.room == VG_ROOM:
             self.scoreboard = pd.DataFrame(columns=['user', 'score'])
 
     async def autoskip(self, skip_time, putter):
-        while self.active:
+        answer = self.answers[0]
+        while self.active and self.answers[0] == answer:
             await self.q_active.wait()
-            answer = self.answers[0]
             self.q_active.clear()
 
             await asyncio.sleep(skip_time)

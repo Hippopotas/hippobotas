@@ -1,6 +1,6 @@
 import asyncio
 
-from constants import ANIME_ROOM, LEAGUE_ROOM
+from constants import ANIME_ROOM, LEAGUE_ROOM, VG_ROOM
 from user import User
 from trivia import TriviaGame
 
@@ -41,8 +41,8 @@ class Room:
 				self.trivia.q_active.set()
 
 				await self.trivia.correct.wait()
-
 				self.trivia.correct.clear()
+
 		except asyncio.CancelledError:
 			for task in asyncio.all_tasks():
 				if task.get_name() == 'tquestions-{}'.format(self.roomname):
@@ -58,7 +58,7 @@ class Room:
 
 			msg = trivia_leaderboard_msg(leaderboard, 'Semi-weekly Trivia Leaderboard')
 			# No persistent scores for the animeandmanga room.
-			if self.roomname == ANIME_ROOM:
+			if self.roomname == ANIME_ROOM or self.roomname == VG_ROOM:
 				msg = trivia_leaderboard_msg(leaderboard, 'Round Standings')
 				self.trivia = TriviaGame(self.roomname)
 
