@@ -56,7 +56,6 @@ class TriviaGame:
         self.correct = asyncio.Event()
         self.answers = []
 
-        self.points = 1
         self.room = room
         self.questions = QuestionList(self.room)
 
@@ -86,11 +85,10 @@ class TriviaGame:
             timer.loc[timer['user'] == TIMER_USER, 'score'] = time.time()
             self.scoreboard = timer
 
-    async def start(self, n=10, points=1, diff=BASE_DIFF, categories=['all'],
+    async def start(self, n=10, diff=BASE_DIFF, categories=['all'],
                     by_rating=False):
         self.active = True
 
-        self.points = points
         if diff > 10:
             diff = 10
         if diff < 1:
@@ -106,10 +104,10 @@ class TriviaGame:
         user_pts = self.scoreboard[self.scoreboard['user'] == user]
 
         if user_pts.empty:
-            new_user = pd.DataFrame([[user, self.points]], columns=['user', 'score'])
+            new_user = pd.DataFrame([[user, 1]], columns=['user', 'score'])
             self.scoreboard = self.scoreboard.append(new_user)
         else:
-            self.scoreboard.loc[self.scoreboard['user'] == user, 'score'] += self.points
+            self.scoreboard.loc[self.scoreboard['user'] == user, 'score'] += 1
 
     async def end(self, putter):
         self.scoreboard = self.scoreboard.sort_values('score', ascending=False)

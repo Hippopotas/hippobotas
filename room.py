@@ -22,10 +22,10 @@ class Room:
 		self.roomname = room
 		self.trivia = TriviaGame(self.roomname)
 
-	async def trivia_game(self, putter, i_putter, n=10, points=1, diff=3,
-						  categories=['all'], by_rating=False, autoskip=0):
+	async def trivia_game(self, putter, i_putter, n=10, diff=3,
+						  categories=['all'], by_rating=False, autoskip=20):
 		try:
-			await self.trivia.start(n, points, diff, categories, by_rating)
+			await self.trivia.start(n, diff, categories, by_rating)
 
 			for _ in range(n):
 				await asyncio.sleep(5)

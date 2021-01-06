@@ -13,22 +13,17 @@ import websockets
 
 from dotenv import load_dotenv
 
-from constants import ANIME_ROOM, LEAGUE_ROOM, VG_ROOM
+from battle import Battle
+from constants import ANIME_ROOM, LEAGUE_ROOM, VG_ROOM, PEARY_ROOM
 from constants import JIKAN_API, DDRAGON_API, DDRAGON_IMG, DDRAGON_SPL
-from constants import TIMER_USER
+from constants import TIMER_USER, OWNER
+from constants import METRONOME_BATTLE
 from user import User, set_mal_user, show_mal_user, mal_user_rand_series
 from room import Room, trivia_leaderboard_msg
 
 PS_SOCKET = 'ws://sim.smogon.com:8000/showdown/websocket'
-USERNAME = ''
-PASSWORD = ''
-JOINLIST = [ANIME_ROOM, LEAGUE_ROOM, VG_ROOM]
-SUCKLIST = {}
-ROOMLIST = {}
+JOINLIST = [ANIME_ROOM, LEAGUE_ROOM, VG_ROOM, PEARY_ROOM]
 WS = None
-
-INCOMING = None
-OUTGOING = None
 
 
 def is_int_str(s):
@@ -89,9 +84,8 @@ def trivia_arg_parser(s):
     parser = argparse.ArgumentParser()
     parser.add_argument('-c', '--categories', nargs='*', default=['all'])
     parser.add_argument('-d', '--diff', type=int, default=3)
-    parser.add_argument('-p', '--points', type=int, default=1)
     parser.add_argument('-r', '--byrating', action='store_true')
-    parser.add_argument('-s', '--autoskip', type=int, default=0)
+    parser.add_argument('-s', '--autoskip', type=int, default=20)
     parser.add_argument('len', type=int)
 
     args = None
@@ -149,443 +143,535 @@ def check_answer(guess, answers):
     return ''
 
 
-async def listener(putter, uri):
-    '''
-    Puts messages from the websocket into the incoming queue.
+class Bot:
+    def __init__(self):
+        load_dotenv()
+        self.username = os.getenv('PS_USERNAME')
+        self.password = os.getenv('PS_PASSWORD')
+        self.sucklist = pd.read_csv('suck.txt')
 
-    Args:
-        putter (method): Queue.put for the relevant queue
-        uri (str): websocket to connect to
-    '''
-    try:
+        self.incoming = asyncio.Queue()
+        self.outgoing = asyncio.Queue()
+
+        self.roomlist = {}
+        self.battles = {}
+
+        self.allow_laddering = True
+
+        self.mal_rooms = [ANIME_ROOM, PEARY_ROOM]
+
+
+    async def listener(self, uri):
+        '''
+        Puts messages from the websocket into the incoming queue.
+
+        Args:
+            uri (str): websocket to connect to
+        '''
         async with websockets.connect(uri) as ws:
             # The same websocket is used to send info back.
             global WS
             WS = ws
             async for msg in ws:
-                await putter(msg)
-    except:
-        await asyncio.sleep(10)
-        await restart_loop(asyncio.get_event_loop())
+                await self.incoming.put(msg)
 
 
-async def interpreter(getter, putter, i_putter):
-    '''
-    Gets messages from the incoming queue and acts on them.
+    async def interpreter(self):
+        '''
+        Gets messages from the incoming queue and acts on them.
 
-    Args:
-        getter (method): Queue.get for the incoming queue
-        putter (method): Queue.put for the outgoing queue,
-                         to send any necessary responses
-        i_putter (method): Queue.put for the incoming queue.
-                           Useful for self-sending.
-    '''
-    while True:
-        msg = await getter()
-        
-        print('Message: ')
-        print(msg)
-
-        await message_handler(msg, putter, i_putter)
-
-
-async def message_handler(msg, putter, i_putter):
-    '''
-    Acts on websocket messages, depending on their contents.
-
-    Args:
-        msg (str): A message from the websocket
-        putter (method): Queue.put for the outgoing queue to the websocket.
-        i_putter (method): Queue.put for the incoming queue.
-                           Useful for self-sending.
-    '''
-    global ROOMLIST
-
-    curr_room = ''
-    broken = msg.split('\n')
-    if broken[0][0] == '>':
-        curr_room = broken[0][1:]
-
-    parts = msg.split('|')
-
-    if len(parts) <= 1:
-        print('!!! SEE THIS !!!')
-        print(parts)
-        return
-
-    # Sanitation
-    if parts[1] == 'c:' or parts[1] == 'pm':
-        parts = parts[0:4] + ['|'.join(parts[4:])]
-
-    # Login
-    if parts[1] == 'challstr':
-        print('Logging in...')
-        await login(parts[2] + "|" + parts[3], putter)
-    elif parts[1] == 'updateuser':
-        await login_check(parts[2], parts[3], putter)
-
-    # Function calls from chat
-    elif (parts[1] == 'c:' or parts[1] == 'pm') and parts[4][0] == ']':
-        is_pm = False
-        caller = parts[3]
-        if parts[1] == 'pm':
-            is_pm = True
-            caller = parts[2]
-        await command_center(curr_room, caller, parts[4], putter, i_putter, pm=is_pm)
-
-    # Trivia guesses
-    elif parts[1] == 'c:':
-        t_active = False
-        try:
-            t_active = ROOMLIST[curr_room].trivia.active
-        except AttributeError:
-            pass
-        
-        # ]tg is/was also a valid invocation for guessing. This is a neat shortcut.
-        if t_active:
-            await command_center(curr_room, parts[3], ']tg {}'.format(parts[4]), putter, i_putter)
-
-
-async def login(keyword, putter):
-    '''
-    Performs the login dance with Showdown.
-
-    Args:
-        keyword (str): The challstr presented by showdown via websocket
-        putter (method): Queue.put for the outgoing queue, to send verification
-                         via websocket to finish login
-    '''
-    details = { 'act': 'login',
-                'name': USERNAME,
-                'pass': PASSWORD,
-                'challstr': keyword
-                }
-
-    async with aiohttp.ClientSession() as session:
-        async with session.post('http://play.pokemonshowdown.com/action.php', json=details) as r:
-            resp = await r.text()
-            assertion = json.loads(resp[1:])['assertion']
-            await putter('|/trn ' + USERNAME + ',0,'  + str(assertion))
-            print('Sending assertion')
-
-
-async def login_check(name, logged_in, putter):
-    '''
-    Sets up if login was successful, otherwise stops the bot.
-
-    Args:
-        name (str): Showdown username
-        logged_in (bool): Whether or not login was successful
-        putter (method): Queue.put method for the outgoing queue; used to
-                         complete setting up on Showdown
-    '''
-    print("Logged in as: " + name)
-
-    if not logged_in:
-        raise Exception("Not logged in.")
-        asyncio.get_running_loop.close()
-
-    if re.sub(r'\W+', '', name) == re.sub(r'\W+', '', USERNAME):
-        await putter('|/avatar 97')
-
-        for room in JOINLIST:
-            ROOMLIST[room] = Room(room)
-            await putter('|/join ' + room)
-
-
-async def command_center(room, caller, command, putter, i_putter, pm=False):
-    '''
-    Handles command messages targeted at the bot.
-
-    Args:
-        room (str): The room the command was posted in
-        caller (str): The user who invoked the command
-        command (str): The entire message sent by the user
-        putter (method): Queue.put method for the outgoing queue, in case
-                         a message response is necessary
-        i_putter (method): Queue.put method for the incoming queue.
-                           Useful for self-sending.
-        pm (bool): Whether or not the command came via PM
-    '''
-    global ROOMLIST
-    global SUCKLIST
-    global USERNAME
-    
-    msg = ''
-    true_caller = User.find_true_name(caller)
-
-    if command[0] != ']' or command == ']':
-        return
-
-    command = command[1:].split()
-
-    if not command:
-        return
-
-    # All-room commands
-    if command[0] == 'help':
-        msg = 'o3o https://pastebin.com/raw/LxnMv5hA o3o'
-    elif command[0] == 'dab':
-        msg = '/me dabs'
-    elif command[0] == 'owo':
-        msg = 'uwu'
-    elif command[0] == 'google':
-        msg = 'Don\'t be mad someone is faster at googling than you :3c'
-    elif command[0] == 'joogle':
-        msg = 'Don\'t be mad someone is faster at joogling than you :3c'
-    elif command[0] == 'bing':
-        msg = 'Have you heard of google?'
-    elif command[0] == 'jing':
-        msg = 'Have you heard of joogle?'
-
-    # animeandmanga
-    elif command[0] == 'jibun' and room == ANIME_ROOM:
-        msg = '/announce JIBUN WOOOOOOOOOO'
-
-    # MAL
-    elif command[0] == 'addmal' and room == ANIME_ROOM:
-        if len(command) > 1:
-            asyncio.create_task(set_mal_user(putter, true_caller, command[1]),
-                                name='setmal-{}'.format(true_caller))
-        else:
-            msg = 'Please enter an MAL username.'
-    
-    elif command[0] == 'mal' and room == ANIME_ROOM:
-        args = None
-
-        to_parse = ''
-        if len(command) > 1:
-            to_parse = ' '.join(command[1:])
-        args = mal_arg_parser(to_parse, true_caller)
-        
-        if args:
-            args.username = User.find_true_name(' '.join(args.username))
-        else:
-            await putter(room + '| Incorrect formatting.')
-            return
-
-        mal_list = pd.read_csv('mal.txt')
-        existing_user = mal_list[mal_list['user'] == args.username]
-        if existing_user.empty:
-            msg = 'This user does not have a MAL set.'
-        else:
-            mal_user = existing_user.iloc[0]['mal']
-            if args.roll is not None:
-                if args.roll == []:
-                    args.roll = ['anime', 'manga']
-
-                asyncio.create_task(mal_user_rand_series(putter, mal_user,
-                                                         caller, args.roll),
-                                    name='randmal-{}'.format(args.username))
-            else:
-                asyncio.create_task(show_mal_user(putter, mal_user),
-                                    name='showmal-{}'.format(args.username))
-
-    # Suck
-    elif command[0] == 'suck':
-        scount = 0
-        suckinfo = SUCKLIST[SUCKLIST['user'] == true_caller]
-        if len(command) > 1:
-            if command[1] == 'top' and not pm:
-                suckboard = SUCKLIST.sort_values('count', ascending=False)
-                suckboard = suckboard[suckboard['user'] != TIMER_USER].head(n=5).values.tolist()
-                msg = trivia_leaderboard_msg(suckboard, 'Suckiest', name='suckboard')
-
-                await putter(room + '|' + msg)
-                return
-        elif true_caller == 'hippopotas':
-            scount = 69420
-            msg = '{} has sucked {} times'.format(caller, str(scount))
-        elif true_caller == 'hipposfavorite':
-            scount = -1
-            msg = '{} has sucked {} times. You are the best. Congrats!'.format(caller, str(scount))
-        elif pm:
-            if suckinfo.empty:
-                suckinfo = pd.DataFrame([[true_caller, 0]],
-                                        columns=['user', 'count'])
-                SUCKLIST = SUCKLIST.append(suckinfo)
+        Args:
+        '''
+        while True:
+            msg = await self.incoming.get()
             
-            # There's a global cooldown of a random number between
-            # 15 and 90 minutes.
-            end_time = SUCKLIST.loc[SUCKLIST['user'] == TIMER_USER, 'count'][0]
-            if time.time() > end_time:
-                SUCKLIST.loc[SUCKLIST['user'] == true_caller, 'count'] += 1
-                scount = int(suckinfo['count'].iat[0] + 1)
-                SUCKLIST.loc[SUCKLIST['user'] == TIMER_USER, 'count'] = time.time() + random.randint(60*5, 60*30)
-            else:
-                SUCKLIST.loc[SUCKLIST['user'] == true_caller, 'count'] = 0
-                scount = 0
+            print('Message: ')
+            print(msg.encode('utf-8'))
 
-            msg = '{} has sucked {} times.'.format(caller, str(scount))
+            await self.message_handler(msg)
 
-        SUCKLIST.to_csv('suck.txt', index=False)
-    
-    # Trivia
-    elif command[0] == 'trivia' and not pm:
-        if len(command) < 2:
+
+    async def message_handler(self, msg):
+        '''
+        Acts on websocket messages, depending on their contents.
+
+        Args:
+            msg (str): A message from the websocket
+        '''
+
+        curr_room = ''
+        broken = msg.split('\n')
+        if broken[0][0] == '>':
+            curr_room = broken[0][1:]
+
+        parts = msg.split('|')
+
+        if len(parts) <= 1:
+            print('!!! SEE THIS !!!')
+            print(parts)
             return
 
-        trivia_game = ROOMLIST[room].trivia
-        trivia_status = trivia_game.active
+        # Battles
+        if parts[1] == 'updatesearch':
+            await self.update_battles(json.loads(parts[2]))
+        
+        if parts[1] == 'updatechallenges':
+            challenges = json.loads(parts[2])['challengesFrom']
+            for challenge in challenges:
+                await self.respond_challenge(challenge, challenges[challenge])
 
-        if (command[1] == 'start' and not trivia_status and
-                User.compare_ranks(caller[0], '%')):
+        if curr_room.startswith('battle-'):
+            await self.battle_handler(msg, curr_room, parts)
 
+        # Sanitation
+        if parts[1] == 'c:' or parts[1] == 'pm':
+            parts = parts[0:4] + ['|'.join(parts[4:])]
+
+        # Login
+        if parts[1] == 'challstr':
+            print('Logging in...')
+            await self.login(parts[2] + "|" + parts[3])
+        elif parts[1] == 'updateuser':
+            await self.login_check(parts[2], parts[3])
+
+        # Function calls from chat
+        elif (parts[1] == 'c:' or parts[1] == 'pm') and parts[4][0] == ']':
+            is_pm = False
+            caller = parts[3]
+            if parts[1] == 'pm':
+                is_pm = True
+                caller = parts[2]
+            await self.command_center(curr_room, caller, parts[4], pm=is_pm)
+
+        # Trivia guesses
+        elif parts[1] == 'c:':
+            t_active = False
+            try:
+                t_active = self.roomlist[curr_room].trivia.active
+            except AttributeError:
+                pass
+            
+            # ]tg is/was also a valid invocation for guessing. This is a neat shortcut.
+            if t_active:
+                await self.command_center(curr_room, parts[3], ']tg {}'.format(parts[4]))
+
+
+    async def battle_handler(self, msg, curr_room, parts):
+        '''
+        Handler for battle-specific messages.
+
+        Args:
+            msg (str): The raw message in its entirety
+            curr_room (str): Room (well, battle) name
+            parts (str): msg split on |
+        '''
+        if curr_room in self.battles:
+            # Action required
+            if parts[1] == 'request':
+                await self.act_in_battle(curr_room)
+
+            # Otherwise is just battle information
+            battle_info = msg.split('\n')[1:]
+            for line in battle_info:
+                self.battles[curr_room].update_info(line)
+
+        # Somehow a battle has slipped through the cracks?
+        elif parts[1] == 'inactive' and parts[2].startswith(self.username):
+            # Refreshes updatesearch
+            await self.outgoing.put('|/cancelsearch')
+            await self.act_in_battle(curr_room)
+
+
+    async def respond_challenge(self, challenger, battle_format):
+        '''
+        Accepts challenges in supported formats. Does not accept
+        challenges from people it is already battling.
+
+        Args:
+            challenger (str): The user requesting a battle
+            battle_format (str): The format of the requested battle
+        '''
+        true_challenger = User.find_true_name(challenger)
+
+        for battle in self.battles:
+            if true_challenger in self.battles[battle].players:
+                return
+        
+        if battle_format == METRONOME_BATTLE:
+            team = Battle.make_team(battle_format)
+            await self.outgoing.put(f'|/utm {team}\n/accept {challenger}')
+
+
+    async def update_battles(self, updatesearch):
+        '''
+        Updates list of current battles self is in.
+
+        Args:
+            updatesearch (dict): Queues being currently searched and current battles;
+                                 contains 'searching' and 'games' fields
+        '''
+        games = updatesearch['games']
+        # Is None in case of no currently active games
+        if not games:
+            games = {}
+            
+            # Play on ladder if idle
+            if not updatesearch['searching'] and self.allow_laddering:
+                team = Battle.make_team(METRONOME_BATTLE)
+                await self.outgoing.put(f'|/utm {team}\n/search {METRONOME_BATTLE}')
+
+        for battle in games:
+            if battle not in self.battles:
+                self.battles[battle] = Battle(games[battle])
+
+                await self.outgoing.put(f'|/join {battle}')
+                await self.outgoing.put(f'{battle}|glhf!')
+                await self.outgoing.put(f'{battle}|/timer on')
+                await self.act_in_battle(battle)
+
+        temp_battles = {}
+        for battle in self.battles:
+            if battle not in games:
+                await self.outgoing.put(f'{battle}|gg!')
+                await self.outgoing.put(f'|/leave {battle}')
+            else:
+                temp_battles[battle] = self.battles[battle]
+
+        self.battles = temp_battles
+
+
+    async def act_in_battle(self, battle_id):
+        '''
+        Figures out what to do in a given battle.
+
+        Args:
+            battle_id (str): The battle's room name
+        '''
+        battle_format = battle_id.split('-')[1]
+        action = Battle.act(battle_format)
+
+        await self.outgoing.put(f'{battle_id}|{action}')
+
+
+    async def login(self, keyword):
+        '''
+        Performs the login dance with Showdown.
+
+        Args:
+            keyword (str): The challstr presented by showdown via websocket
+        '''
+        details = { 'act': 'login',
+                    'name': self.username,
+                    'pass': self.password,
+                    'challstr': keyword
+                    }
+
+        async with aiohttp.ClientSession() as session:
+            async with session.post('http://play.pokemonshowdown.com/action.php', json=details) as r:
+                resp = await r.text()
+                assertion = json.loads(resp[1:])['assertion']
+                await self.outgoing.put('|/trn ' + self.username + ',0,'  + str(assertion))
+                print('Sending assertion')
+
+
+    async def login_check(self, name, logged_in):
+        '''
+        Sets up if login was successful, otherwise stops the bot.
+
+        Args:
+            name (str): Showdown username
+            logged_in (bool): Whether or not login was successful
+        '''
+        print("Logged in as: " + name)
+
+        if not logged_in:
+            raise Exception("Not logged in.")
+            asyncio.get_running_loop.close()
+
+        if re.sub(r'\W+', '', name) == re.sub(r'\W+', '', self.username):
+            await self.outgoing.put('|/avatar 97')
+
+            for room in JOINLIST:
+                self.roomlist[room] = Room(room)
+                await self.outgoing.put('|/join ' + room)
+
+
+    async def command_center(self, room, caller, command, pm=False):
+        '''
+        Handles command messages targeted at the bot.
+
+        Args:
+            room (str): The room the command was posted in
+            caller (str): The user who invoked the command
+            command (str): The entire message sent by the user
+            pm (bool): Whether or not the command came via PM
+        '''
+
+        msg = ''
+        true_caller = User.find_true_name(caller)
+
+        if command[0] != ']' or command == ']':
+            return
+
+        command = command[1:].split()
+
+        if not command:
+            return
+
+        # All-room commands
+        if command[0] == 'help':
+            msg = 'o3o https://pastebin.com/raw/LxnMv5hA o3o'
+        elif command[0] == 'dab':
+            msg = '/me dabs'
+        elif command[0] == 'owo':
+            msg = 'uwu'
+        elif command[0] == 'google':
+            msg = 'Don\'t be mad someone is faster at googling than you :3c'
+        elif command[0] == 'joogle':
+            msg = 'Don\'t be mad someone is faster at joogling than you :3c'
+        elif command[0] == 'bing':
+            msg = 'Have you heard of google?'
+        elif command[0] == 'jing':
+            msg = 'Have you heard of joogle?'
+
+        # animeandmanga
+        elif command[0] == 'jibun' and room == ANIME_ROOM:
+            msg = '/announce JIBUN WOOOOOOOOOO'
+
+        # MAL
+        elif command[0] == 'addmal' and room in self.mal_rooms:
+            if len(command) > 1:
+                asyncio.create_task(set_mal_user(self.outgoing.put, true_caller, command[1]),
+                                    name='setmal-{}'.format(true_caller))
+            else:
+                msg = 'Please enter an MAL username.'
+        
+        elif command[0] == 'mal' and (room in self.mal_rooms or pm):
             args = None
-            if len(command) > 2:
-                args = trivia_arg_parser(' '.join(command[2:]))
+
+            to_parse = ''
+            if len(command) > 1:
+                to_parse = ' '.join(command[1:])
+            args = mal_arg_parser(to_parse, true_caller)
             
-            if not args:
-                msg = 'Invalid parameters. Trivia not started.'
+            if args:
+                args.username = User.find_true_name(' '.join(args.username))
             else:
-                msg = 'Starting a round of trivia with {} questions, each ' \
-                      'worth {} points. Type your answers to guess!'.format(args.len, args.points)
-                asyncio.create_task(ROOMLIST[room].trivia_game(putter,
-                                                               i_putter,
-                                                               args.len,
-                                                               args.points,
-                                                               args.diff,
-                                                               args.categories,
-                                                               args.byrating,
-                                                               args.autoskip),
-                                    name='trivia-{}'.format(room))
-        elif (command[1] == 'stop' or command[1] =='end') and User.compare_ranks(caller[0], '%'):
-            if trivia_status:
-                for task in asyncio.all_tasks():
-                    if task.get_name() == 'trivia-{}'.format(room):
-                        task.cancel()
-                        break
-                return
-            else:
-                msg = 'No trivia game in progress.'
-        elif command[1] == 'score':
-            user = ''
-            score = 0
-
-            # Persistent trivia scores are disabled in animeandmanga.
-            if room == ANIME_ROOM:
+                await self.outgoing.put(room + '| Incorrect formatting.')
                 return
 
-            if len(command) > 2:
-                user, score = trivia_game.userscore(User.find_true_name(''.join(command[2:])))
+            mal_list = pd.read_csv('mal.txt')
+            existing_user = mal_list[mal_list['user'] == args.username]
+            if existing_user.empty:
+                msg = 'This user does not have a MAL set.'
             else:
-                user, score = trivia_game.userscore(User.find_true_name(caller))
+                ctx = room
+                if pm:
+                    ctx = 'pm'
+                mal_user = existing_user.iloc[0]['mal']
 
-            if user is None:
-                msg = 'User not found.'
-            else:
-                msg = '{} has {} points in trivia games here.'.format(user, score)
-        elif command[1] == 'leaderboard':
-            to_show = 5
-            if len(command) > 2:
-                if is_int_str(command[2]):
-                    to_show = int(command[2])
+                if args.roll is not None:
+                    if args.roll == []:
+                        args.roll = ['anime', 'manga']
 
-            title = 'Semi-weekly Trivia Leaderboard'
-            if room == ANIME_ROOM or room == VG_ROOM:
-                title = 'No leaderboard for this room.'
-            msg = trivia_leaderboard_msg(trivia_game.leaderboard(n=to_show), title)
-        elif command[1] == 'skip' and User.compare_ranks(caller[0], '%'):
-            if trivia_game.active and trivia_game.answers:
-                answer = trivia_game.answers[-1]
+                    asyncio.create_task(mal_user_rand_series(self.outgoing.put, mal_user,
+                                                             caller, args.roll, ctx),
+                                        name='randmal-{}'.format(args.username))
+                elif not pm:
+                    asyncio.create_task(show_mal_user(self.outgoing.put, mal_user, ctx),
+                                        name='showmal-{}'.format(args.username))
 
-                trivia_game.correct.set()
-                trivia_game.answers = []
-                await trivia_game.skip(putter)
+        # Suck
+        elif command[0] == 'suck':
+            scount = 0
+            suckinfo = self.sucklist[self.sucklist['user'] == true_caller]
+            if len(command) > 1:
+                if command[1] == 'top' and not pm:
+                    suckboard = self.sucklist.sort_values('count', ascending=False)
+                    suckboard = suckboard[suckboard['user'] != TIMER_USER].head(n=5).values.tolist()
+                    msg = trivia_leaderboard_msg(suckboard, 'Suckiest', name='suckboard')
 
-                msg = 'Skipping question. A correct answer would have been {}.'.format(answer)
-
-    elif command[0] == 'tg' and not pm:
-        trivia_game = ROOMLIST[room].trivia
-        if trivia_game.active:
-            answer_check = ''
-            # Anime/manga/video game titles have a lot of different colloquial names.
-            # Those rooms are more flexible in accepting answers.
-            if room == ANIME_ROOM or room == VG_ROOM:
-                answer_check = check_answer(''.join(command[1:]), trivia_game.answers)
-            else:
-                for answer in trivia_game.answers:
-                    if User.find_true_name(answer) == User.find_true_name(''.join(command[1:])):
-                        answer_check = answer
-                        break
-            if answer_check:
-                msg = f'{caller} wins.'
-                if true_caller == USERNAME:
-                    msg = 'Question skipped.'
+                    await self.outgoing.put(room + '|' + msg)
+                    return
+            elif true_caller == 'hippopotas':
+                scount = 69420
+                msg = '{} has sucked {} times'.format(caller, str(scount))
+            elif true_caller == 'hipposfavorite':
+                scount = -1
+                msg = '{} has sucked {} times. You are the best. Congrats!'.format(caller, str(scount))
+            elif pm:
+                if suckinfo.empty:
+                    suckinfo = pd.DataFrame([[true_caller, 0]],
+                                            columns=['user', 'count'])
+                    self.sucklist = self.sucklist.append(suckinfo)
+                
+                # There's a global cooldown of a random number between
+                # 15 and 90 minutes.
+                end_time = self.sucklist.loc[self.sucklist['user'] == TIMER_USER, 'count'][0]
+                if time.time() > end_time:
+                    self.sucklist.loc[self.sucklist['user'] == true_caller, 'count'] += 1
+                    scount = int(suckinfo['count'].iat[0] + 1)
+                    self.sucklist.loc[self.sucklist['user'] == TIMER_USER, 'count'] = time.time() + random.randint(60*5, 60*30)
                 else:
-                    trivia_game.update_scores(true_caller)
+                    self.sucklist.loc[self.sucklist['user'] == true_caller, 'count'] = 0
+                    scount = 0
 
-                msg += f' The answer was {answer_check}.'
+                msg = '{} has sucked {} times.'.format(caller, str(scount))
 
-                trivia_game.correct.set()
-                trivia_game.answers = []
+            self.sucklist.to_csv('suck.txt', index=False)
 
-    elif command[0] == 'skip' and not pm:      # Trivia skip alias
-        new_command = ']trivia ' + ' '.join(command)
-        await command_center(room, caller, new_command, putter, i_putter)
-        return
+        
+        # Trivia
+        elif command[0] == 'trivia' and not pm:
+            if len(command) < 2:
+                return
 
-    if msg == '':
-        return
+            trivia_game = self.roomlist[room].trivia
+            trivia_status = trivia_game.active
 
-    if pm:
-        msg = '/w {}, '.format(true_caller) + msg
-    await putter(room + '|' + msg)
+            if (command[1] == 'start' and not trivia_status and
+                    User.compare_ranks(caller[0], '%')):
+
+                args = None
+                if len(command) > 2:
+                    args = trivia_arg_parser(' '.join(command[2:]))
+                
+                if not args:
+                    msg = 'Invalid parameters. Trivia not started.'
+                else:
+                    msg = 'Starting a round of trivia with {} questions, with a ' \
+                          '{} second timer. Type your answers to guess!'.format(args.len, args.autoskip)
+                    asyncio.create_task(self.roomlist[room].trivia_game(self.outgoing.put,
+                                                                        self.incoming.put,
+                                                                        args.len,
+                                                                        args.diff,
+                                                                        args.categories,
+                                                                        args.byrating,
+                                                                        args.autoskip),
+                                        name='trivia-{}'.format(room))
+            elif (command[1] == 'stop' or command[1] =='end') and User.compare_ranks(caller[0], '%'):
+                if trivia_status:
+                    for task in asyncio.all_tasks():
+                        if task.get_name() == 'trivia-{}'.format(room):
+                            task.cancel()
+                            break
+                    return
+                else:
+                    msg = 'No trivia game in progress.'
+            elif command[1] == 'score':
+                user = ''
+                score = 0
+
+                # Persistent trivia scores are disabled in animeandmanga.
+                if room == ANIME_ROOM or room == VG_ROOM:
+                    return
+
+                if len(command) > 2:
+                    user, score = trivia_game.userscore(User.find_true_name(''.join(command[2:])))
+                else:
+                    user, score = trivia_game.userscore(User.find_true_name(caller))
+
+                if user is None:
+                    msg = 'User not found.'
+                else:
+                    msg = '{} has {} points in trivia games here.'.format(user, score)
+            elif command[1] == 'leaderboard':
+                to_show = 5
+                if len(command) > 2:
+                    if is_int_str(command[2]):
+                        to_show = int(command[2])
+
+                title = 'Semi-weekly Trivia Leaderboard'
+                if room == ANIME_ROOM or room == VG_ROOM:
+                    title = 'No leaderboard for this room.'
+                msg = trivia_leaderboard_msg(trivia_game.leaderboard(n=to_show), title)
+            elif command[1] == 'skip' and User.compare_ranks(caller[0], '%'):
+                if trivia_game.active and trivia_game.answers:
+                    answer = trivia_game.answers[-1]
+
+                    trivia_game.correct.set()
+                    trivia_game.answers = []
+                    await trivia_game.skip(self.outgoing.put)
+
+                    msg = 'Skipping question. A correct answer would have been {}.'.format(answer)
+
+        elif command[0] == 'tg' and not pm:
+            trivia_game = self.roomlist[room].trivia
+            if trivia_game.active:
+                answer_check = ''
+                # Anime/manga/video game titles have a lot of different colloquial names.
+                # Those rooms are more flexible in accepting answers.
+                if room == ANIME_ROOM or room == VG_ROOM:
+                    answer_check = check_answer(''.join(command[1:]), trivia_game.answers)
+                else:
+                    for answer in trivia_game.answers:
+                        if User.find_true_name(answer) == User.find_true_name(''.join(command[1:])):
+                            answer_check = answer
+                            break
+                if answer_check:
+                    msg = f'{caller} wins.'
+                    if true_caller == self.username:
+                        msg = 'Question skipped.'
+                    else:
+                        trivia_game.update_scores(true_caller)
+
+                    msg += f' The answer was {answer_check}.'
+
+                    trivia_game.correct.set()
+                    trivia_game.answers = []
+
+        elif command[0] == 'skip' and not pm:      # Trivia skip alias
+            new_command = ']trivia ' + ' '.join(command)
+            await self.command_center(room, caller, new_command)
+            return
+        
+        elif command[0] == 'ladder_toggle' and true_caller == OWNER:
+            self.allow_laddering = not self.allow_laddering
+            # Refreshes updatesearch as well.
+            await self.outgoing.put('|/cancelsearch')
+
+            msg = f'Laddering is now {self.allow_laddering}.'
 
 
-async def sender(getter):
-    '''
-    Sends messages destined for Showdown.
+        if msg == '':
+            return
 
-    Args:
-        getter (method): Queue.get for the outgoing queue, where the messages
-                         are taken from
-    '''
-    while True:
-        msg = await getter()
-
-        print('Sending: ')
-        print(msg)
-        await WS.send(msg)
+        if pm:
+            msg = '/w {}, '.format(true_caller) + msg
+        await self.outgoing.put(room + '|' + msg)
 
 
-async def restart_loop(loop):
-    global INCOMING
-    global OUTGOING
+    async def sender(self):
+        '''
+        Sends messages destined for Showdown.
 
-    await loop.stop()
-    await loop.close()
+        Args:
+        '''
+        while True:
+            msg = await self.outgoing.get()
 
-    INCOMING = asyncio.Queue()
-    OUTGOING = asyncio.Queue()
+            print('Sending: ')
+            print(msg)
+            await WS.send(msg)
+            await asyncio.sleep(0.1)
 
-    start_loop(loop)
-
-
-def start_loop(loop):
-    try:
-        loop.run_until_complete(asyncio.wait((listener(INCOMING.put, PS_SOCKET),
-                                              interpreter(INCOMING.get, OUTGOING.put, INCOMING.put),
-                                              sender(OUTGOING.get))))
-    except:
-        # Useful for debugging, since I can't figure out how else
-        # to make async stuff return the actual error.
-        import traceback
-        traceback.print_exc()
-    finally:
-        loop.close()
     
-
 if __name__ == "__main__":
-    load_dotenv()
-    USERNAME = os.getenv('PS_USERNAME')
-    PASSWORD = os.getenv('PS_PASSWORD')
-    SUCKLIST = pd.read_csv('suck.txt')
 
     loop = asyncio.get_event_loop()
     loop.set_debug(True)
 
-    INCOMING = asyncio.Queue()
-    OUTGOING = asyncio.Queue()
+    while True:
+        bot = Bot()
 
-    start_loop(loop)
+        try:
+            loop.run_until_complete(asyncio.wait((bot.listener(PS_SOCKET), bot.interpreter(), bot.sender())))
+        except:
+            # Useful for debugging, since I can't figure out how else
+            # to make async stuff return the actual error.
+            import traceback
+            traceback.print_exc()
+        finally:
+            loop.close()
+
+        time.sleep(30)
