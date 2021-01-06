@@ -18,8 +18,10 @@ from constants import ANIME_ROOM, LEAGUE_ROOM, VG_ROOM, PEARY_ROOM
 from constants import JIKAN_API, DDRAGON_API, DDRAGON_IMG, DDRAGON_SPL
 from constants import TIMER_USER, OWNER
 from constants import METRONOME_BATTLE
+from constants import PLEB_URL
 from user import User, set_mal_user, show_mal_user, mal_user_rand_series
 from room import Room, trivia_leaderboard_msg
+from trivia import gen_uhtml_img_code
 
 PS_SOCKET = 'ws://sim.smogon.com:8000/showdown/websocket'
 JOINLIST = [ANIME_ROOM, LEAGUE_ROOM, VG_ROOM, PEARY_ROOM]
@@ -433,6 +435,10 @@ class Bot:
             msg = 'Have you heard of google?'
         elif command[0] == 'jing':
             msg = 'Have you heard of joogle?'
+        
+        elif command[0] == 'plebs' and User.compare_ranks(caller[0], '+'):
+            uhtml = gen_uhtml_img_code(PLEB_URL, height_resize=250)
+            msg = f'/adduhtml hippo-pleb, {uhtml}'
 
         # animeandmanga
         elif command[0] == 'jibun' and room == ANIME_ROOM:

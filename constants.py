@@ -13,6 +13,7 @@ DDRAGON_IMG = 'http://ddragon.leagueoflegends.com/cdn/10.23.1/img/'
 DDRAGON_SPL = 'http://ddragon.leagueoflegends.com/cdn/img/champion/loading/'
 
 IMG_NOT_FOUND = 'https://i.imgur.com/Mlw966x.png'
+PLEB_URL = 'https://i.imgur.com/c9nyFqJ.png'
 
 METRONOME_BATTLE = 'gen8metronomebattle'
 
