@@ -445,9 +445,12 @@ class Bot:
             msg = '/announce JIBUN WOOOOOOOOOO'
 
         # MAL
-        elif command[0] == 'addmal' and room in self.mal_rooms:
+        elif command[0] == 'addmal' and (room in self.mal_rooms or pm):
             if len(command) > 1:
-                asyncio.create_task(set_mal_user(self.outgoing.put, true_caller, command[1]),
+                ctx = room
+                if pm:
+                    ctx = 'pm'
+                asyncio.create_task(set_mal_user(self.outgoing.put, true_caller, command[1], ctx),
                                     name='setmal-{}'.format(true_caller))
             else:
                 msg = 'Please enter an MAL username.'
@@ -469,7 +472,7 @@ class Bot:
             mal_list = pd.read_csv('mal.txt')
             existing_user = mal_list[mal_list['user'] == args.username]
             if existing_user.empty:
-                msg = 'This user does not have a MAL set.'
+                msg = 'This user does not have a MAL set. Please set a valid account using ]addmal'
             else:
                 ctx = room
                 if pm:
@@ -483,8 +486,8 @@ class Bot:
                     asyncio.create_task(mal_user_rand_series(self.outgoing.put, mal_user,
                                                              caller, args.roll, ctx),
                                         name='randmal-{}'.format(args.username))
-                elif not pm:
-                    asyncio.create_task(show_mal_user(self.outgoing.put, mal_user, ctx),
+                else:
+                    asyncio.create_task(show_mal_user(self.outgoing.put, mal_user, true_caller, ctx),
                                         name='showmal-{}'.format(args.username))
 
         # Suck

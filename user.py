@@ -10,24 +10,31 @@ from constants import JIKAN_API, IMG_NOT_FOUND
 from trivia import gen_uhtml_img_code
 
 
-async def get_mal_user(username):
+async def get_mal_user(username, retries=5):
     async with aiohttp.ClientSession(trust_env=True) as session:
-        while True:
+        retry = 0
+        while retry < retries:
             async with session.get(JIKAN_API + 'user/{}'.format(username)) as r:
                 resp = await r.text()
                 userdata = json.loads(resp)
 
-                if r.status == 404:
+                if r.status == 404 or r.status == 400:
                     return None
                 elif r.status != 200:
                     print('Status {} when getting {} MAL'.format(r.status, username))
                     await asyncio.sleep(10)
+                
+                    retry += 1
                     continue
 
                 return userdata
 
 
-async def set_mal_user(putter, ps_user, mal_user):
+async def set_mal_user(putter, ps_user, mal_user, ctx):
+    prefix = f'{ctx}|'
+    if ctx == 'pm':
+        prefix = f'|/w {ps_user},'
+
     userdata = await get_mal_user(mal_user)
     if userdata:
         mal_list = pd.read_csv('mal.txt')
@@ -40,14 +47,23 @@ async def set_mal_user(putter, ps_user, mal_user):
             mal_list.loc[mal_list['user'] == ps_user, 'mal'] = mal_user
         
         mal_list.to_csv('mal.txt', index=False)
-        await putter(ANIME_ROOM + '|Set {}\'s MAL to {}.'.format(ps_user, mal_user))
+        await putter(f'{prefix} Set {ps_user}\'s MAL to {mal_user}.')
     else:
-        await putter(ANIME_ROOM + '|Could not find MAL user {}.'.format(mal_user))
+        await putter(f'{prefix} Could not find MAL user {mal_user}.')
 
 
-async def show_mal_user(putter, username, ctx):
+async def show_mal_user(putter, username, true_caller, ctx):
+    prefix = f'{ctx}|'
+    if ctx == 'pm':
+        prefix = f'|/w {true_caller},'
+
     userdata = await get_mal_user(username)
     if userdata:
+        if ctx == 'pm':
+            user_url = userdata['url']
+            await putter(f'{prefix} {user_url}')
+            return
+
         # Set image
         img_url = IMG_NOT_FOUND
         if userdata['image_url']:
@@ -112,10 +128,9 @@ async def show_mal_user(putter, username, ctx):
                             top_series_uhtml['manga'][1],
                             top_series_uhtml['manga'][0]))
 
-        await putter(ctx + '|/adduhtml {}-mal, '.format(username) + mal_uhtml)
+        await putter(f'{prefix}/adduhtml {username}-mal, {mal_uhtml}')
     else:
-        await putter(ctx + '|Could not find the MAL account {}. '
-                           'Please set a valid account using ]addmal'.format(username))
+        await putter(f'{prefix} Could not find the MAL account {username}. ')
 
 
 async def mal_user_rand_series(putter, username, caller, media, ctx):
@@ -144,14 +159,13 @@ async def mal_user_rand_series(putter, username, caller, media, ctx):
                 if series_list:
                     all_series_list += series_list[medium]
                 else:
-                    await putter(f'{prefix} Could not find {username}\'s {medium}list.')
-                    return
+                    break
                 
                 page += 1
                 await asyncio.sleep(0.5)    # Jikan rate-limits to 2 requests/second.
 
     if not all_series_list:
-        await putter(f'{prefix} No series on {username}\'s {medium}list.')
+        await putter(f'{prefix} No series found for {username} with the given specifications.')
         return
 
     rand_series = random.choice(all_series_list)
