@@ -36,10 +36,12 @@ class Battle:
 
 
     @staticmethod
-    def act(battle_format):
+    def act(battle_format, one_poke=False):
         action = 'default'
         if battle_format == METRONOME_BATTLE:
             action = 'move 1, move 1'
+            if one_poke:
+                action = 'move 1'
         
         return f'/choose {action}'
 

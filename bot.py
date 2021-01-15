@@ -272,10 +272,13 @@ class Bot:
             if parts[1] == 'request':
                 await self.act_in_battle(curr_room)
 
-            # Otherwise is just battle information
-            battle_info = msg.split('\n')[1:]
-            for line in battle_info:
-                self.battles[curr_room].update_info(line)
+            elif parts[1] == 'error':
+                await self.act_in_battle(curr_room, one_poke=True)
+            else:
+                # Otherwise is just battle information
+                battle_info = msg.split('\n')[1:]
+                for line in battle_info:
+                    self.battles[curr_room].update_info(line)
 
         # Somehow a battle has slipped through the cracks?
         elif parts[1] == 'inactive' and parts[2].startswith(self.username):
@@ -342,7 +345,7 @@ class Bot:
         self.battles = temp_battles
 
 
-    async def act_in_battle(self, battle_id):
+    async def act_in_battle(self, battle_id, one_poke=False):
         '''
         Figures out what to do in a given battle.
 
@@ -350,7 +353,7 @@ class Bot:
             battle_id (str): The battle's room name
         '''
         battle_format = battle_id.split('-')[1]
-        action = Battle.act(battle_format)
+        action = Battle.act(battle_format, one_poke=one_poke)
 
         await self.outgoing.put(f'{battle_id}|{action}')
 
