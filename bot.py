@@ -1,6 +1,7 @@
 import aiohttp
 import argparse
 import asyncio
+import datetime
 import json
 import numpy as np
 import os
@@ -26,7 +27,8 @@ from trivia import gen_uhtml_img_code
 PS_SOCKET = 'ws://sim.smogon.com:8000/showdown/websocket'
 JOINLIST = [ANIME_ROOM, LEAGUE_ROOM, VG_ROOM, PEARY_ROOM]
 WS = None
-
+SUCKFILE = 'suck.txt'
+CALENDARFILE = 'calendar.txt'
 
 def is_int_str(s):
     '''
@@ -150,7 +152,8 @@ class Bot:
         load_dotenv()
         self.username = os.getenv('PS_USERNAME')
         self.password = os.getenv('PS_PASSWORD')
-        self.sucklist = pd.read_csv('suck.txt')
+        self.calendar = json.load(open(CALENDARFILE))
+        self.sucklist = pd.read_csv(SUCKFILE)
 
         self.incoming = asyncio.Queue()
         self.outgoing = asyncio.Queue()
@@ -423,7 +426,7 @@ class Bot:
         if not command:
             return
 
-        # All-room commands
+        # General commands
         if command[0] == 'help':
             msg = 'o3o https://pastebin.com/raw/LxnMv5hA o3o'
         elif command[0] == 'dab':
@@ -442,6 +445,14 @@ class Bot:
         elif command[0] == 'plebs' and User.compare_ranks(caller[0], '+'):
             uhtml = gen_uhtml_img_code(PLEB_URL, height_resize=250)
             msg = f'/adduhtml hippo-pleb, {uhtml}'
+
+        elif command[0] == 'calendar':
+            curr_day = datetime.date.today()
+            curr_day_str = curr_day.strftime('%B') + ' ' + str(curr_day.day)
+            date_imgs = self.calendar[curr_day_str]
+
+            uhtml = gen_uhtml_img_code(random.choice(date_imgs), height_resize=200)
+            msg = f'/adduhtml hippo-calendar, {uhtml}'
 
         # animeandmanga
         elif command[0] == 'jibun' and room == ANIME_ROOM:
@@ -530,7 +541,7 @@ class Bot:
 
                 msg = '{} has sucked {} times.'.format(caller, str(scount))
 
-            self.sucklist.to_csv('suck.txt', index=False)
+            self.sucklist.to_csv(SUCKFILE, index=False)
 
         
         # Trivia
