@@ -71,6 +71,9 @@ class TriviaGame:
 
             await asyncio.sleep(skip_time)
 
+            if len(self.answers) == 0:
+                break
+
             curr_time = int(time.time())
             await putter(f'>{self.room}\n'
                          f'|c:|{curr_time}|*hippobotas|{answer}')

@@ -275,7 +275,7 @@ class Bot:
             if parts[1] == 'request':
                 await self.act_in_battle(curr_room)
 
-            elif parts[1] == 'error':
+            elif parts[1] == 'error' and 'more choices than unfainted' in parts[2]:
                 await self.act_in_battle(curr_room, one_poke=True)
             else:
                 # Otherwise is just battle information
