@@ -19,3 +19,51 @@ PLEB_URL = 'https://i.imgur.com/c9nyFqJ.png'
 METRONOME_BATTLE = 'gen8metronomebattle'
 
 OWNER = 'hippopotas'
+
+LEAGUE_CATS = ['skins', 'spells', 'items']
+
+MAL_GENRES = {'action': 1,
+              'adventure': 2,
+              'cars': 3,
+              'comedy': 4,
+              'dementia': 5,
+              'demons': 6,
+              'mystery': 7,
+              'drama': 8,
+              'ecchi': 9,
+              'fantasy': 10,
+              'game': 11,
+              'historical': 13,
+              'horror': 14,
+              'kids': 15,
+              'magic': 16,
+              'martialarts': 17,
+              'mecha': 18,
+              'music': 19,
+              'parody': 20,
+              'samurai': 21,
+              'romance': 22,
+              'school': 23,
+              'scifi': 24,
+              'shoujo': 25,
+              'shoujoai': 26,
+              'shounen': 27,
+              'shounenai': 28,
+              'space': 29,
+              'sports': 30,
+              'superpower': 31,
+              'vampire': 32,
+              'yaoi': 33,
+              'yuri': 34,
+              'harem': 35,
+              'sliceoflife': 36,
+              'supernatural': 37,
+              'military': 38,
+              'police': 39,
+              'psychological':40}
+
+ANIME_GENRES = {**MAL_GENRES, 'thriller': 41, 'seinen': 42, 'josei': 43}
+MANGA_GENRES = {**MAL_GENRES, 'seinen': 41, 'josei': 42, 'doujinshi': 43, 'genderbender': 44, 'thriller': 45}
+
+ANIME_TYPES = ['tv', 'ova', 'movie', 'special', 'ona', 'music']
+MANGA_TYPES = ['manga', 'novel', 'oneshot', 'doujin', 'manhwa', 'manhua']

@@ -16,6 +16,7 @@ from dotenv import load_dotenv
 
 from battle import Battle
 from constants import ANIME_ROOM, LEAGUE_ROOM, VG_ROOM, PEARY_ROOM
+from constants import ANIME_GENRES, MANGA_GENRES, ANIME_TYPES, MANGA_TYPES, LEAGUE_CATS
 from constants import JIKAN_API, DDRAGON_API, DDRAGON_IMG, DDRAGON_SPL
 from constants import TIMER_USER, OWNER
 from constants import METRONOME_BATTLE
@@ -114,6 +115,7 @@ def trivia_arg_parser(s):
     '''
     parser = argparse.ArgumentParser()
     parser.add_argument('-c', '--categories', nargs='*', default=['all'])
+    parser.add_argument('-cx', '--excludecats', action='store_true')
     parser.add_argument('-d', '--diff', type=int, default=3)
     parser.add_argument('-r', '--byrating', action='store_true')
     parser.add_argument('-s', '--autoskip', type=int, default=20)
@@ -123,10 +125,35 @@ def trivia_arg_parser(s):
     try:
         args = parser.parse_args(shlex.split(s))
 
+        all_categories = ['all', 'anime', 'manga'] + ANIME_TYPES + MANGA_TYPES + \
+                         list(ANIME_GENRES.keys()) + list(MANGA_GENRES.keys()) + \
+                         LEAGUE_CATS
+        fixed_categories = []
+        arg_categories = iter(args.categories)
+
+        category = next(arg_categories, None)
+        while category:
+            category = User.find_true_name(category)
+
+            if category in all_categories:
+                fixed_categories.append(category)
+                category = next(arg_categories, None)
+
+            else:
+                add_on = next(arg_categories, None)
+                if add_on is None:
+                    return
+
+                category += add_on
+
+        args.categories = fixed_categories
     # Incorrectly formatted input results in args = None
     except SystemExit:
         pass
     except ValueError:
+        return
+
+    if args.excludecats and args.categories == ['all']:
         return
 
     return args
@@ -638,6 +665,7 @@ class Bot:
                                                                         args.len,
                                                                         args.diff,
                                                                         args.categories,
+                                                                        args.excludecats,
                                                                         args.byrating,
                                                                         args.autoskip),
                                         name='trivia-{}'.format(room))
