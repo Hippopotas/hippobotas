@@ -24,14 +24,26 @@ PIC_SIZE = 225
 def img_dims_from_uri(uri):
     # Returns width, height
     dims = (0, 0)
+    data = None
+    retry = 0
     with ulreq.urlopen(uri) as f:
-        p = ImageFile.Parser()
-        data = f.read(1024)
+        while retry < 1000:
+            p = ImageFile.Parser()
 
-        p.feed(data)
-        if not p.image.size:
-            print(uri)
-        dims = p.image.size
+            if not data:
+                data = f.read(1024)
+            else:
+                data += f.read(1024)
+
+            p.feed(data)
+
+            try:
+                dims = p.image.size
+            except AttributeError:
+                retry += 1
+                continue
+            else:
+                break
 
     return dims
 

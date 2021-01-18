@@ -20,7 +20,7 @@ from constants import JIKAN_API, DDRAGON_API, DDRAGON_IMG, DDRAGON_SPL
 from constants import TIMER_USER, OWNER
 from constants import METRONOME_BATTLE
 from constants import PLEB_URL
-from user import User, set_mal_user, show_mal_user, mal_user_rand_series
+from user import User, set_mal_user, show_mal_user, mal_user_rand_series, set_steam_user, show_steam_user
 from room import Room, trivia_leaderboard_msg
 from trivia import gen_uhtml_img_code
 
@@ -74,6 +74,33 @@ def mal_arg_parser(s, caller):
 
     return args
 
+
+def steam_arg_parser(s, caller):
+    '''
+    Parses a steam invocation as if it were CLI input.
+
+    Args:
+        s (str): input str
+        caller (str): username of the person who invoked the command
+    
+    Returns:
+        args (Namespace): contains the arguments as methods
+    '''
+    parser = argparse.ArgumentParser()
+    parser.add_argument('-r', '--roll', type=bool, default=False)
+    parser.add_argument('username', type=str, nargs='*', default=[caller])
+
+    args = None
+    try:
+        args = parser.parse_args(shlex.split(s))
+
+    # Incorrectly formatted input results in args = None
+    except SystemExit:
+        pass
+    except ValueError:
+        return
+
+    return args
 
 def trivia_arg_parser(s):
     '''
@@ -164,6 +191,7 @@ class Bot:
         self.allow_laddering = True
 
         self.mal_rooms = [ANIME_ROOM, PEARY_ROOM]
+        self.steam_rooms = [VG_ROOM, PEARY_ROOM]
 
 
     async def listener(self, uri):
@@ -503,6 +531,47 @@ class Bot:
                 else:
                     asyncio.create_task(show_mal_user(self.outgoing.put, mal_user, true_caller, ctx),
                                         name='showmal-{}'.format(args.username))
+
+        # Steam
+        elif command[0] == 'addsteam' and (room in self.steam_rooms or pm):
+            if len(command) > 1:
+                ctx = room
+                if pm:
+                    ctx = 'pm'
+                asyncio.create_task(set_steam_user(self.outgoing.put, true_caller, command[1], ctx),
+                                    name='setsteam-{}'.format(true_caller))
+            else:
+                msg = 'Please enter a Steam ID (from the URL).'
+
+        elif command[0] == 'steam' and (room in self.steam_rooms or pm):
+            args = None
+
+            to_parse = ''
+            if len(command) > 1:
+                to_parse = ' '.join(command[1:])
+            args = steam_arg_parser(to_parse, true_caller)
+            
+            if args:
+                args.username = User.find_true_name(' '.join(args.username))
+            else:
+                await self.outgoing.put(room + '| Incorrect formatting.')
+                return
+
+            steam_list = pd.read_csv('steam.txt')
+            existing_user = steam_list[steam_list['user'] == args.username]
+            if existing_user.empty:
+                msg = 'This user does not have a Steam set. Please set a valid account using ]addsteam'
+            else:
+                ctx = room
+                if pm:
+                    ctx = 'pm'
+                steam_user = existing_user.iloc[0]['steam']
+
+                if args.roll:
+                    msg = 'Coming soon TM'
+                else:
+                    asyncio.create_task(show_steam_user(self.outgoing.put, steam_user, true_caller, ctx),
+                                        name='showsteam-{}'.format(args.username))
 
         # Suck
         elif command[0] == 'suck':
