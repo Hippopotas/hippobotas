@@ -179,13 +179,19 @@ async def mal_user_rand_series(putter, username, caller, media, ctx):
 async def get_steam_user(username, retries=2):
     async with aiohttp.ClientSession(trust_env=True) as session:
         id64 = None
+        url_vers = 'profiles'
         for i in range(retries):
-            async with session.get(f'https://steamcommunity.com/id/{username}/?xml=1') as r:
+            async with session.get(f'https://steamcommunity.com/{url_vers}/{username}/?xml=1') as r:
                 resp = await r.text()
 
                 if r.status != 200:
                     print(f'Steam prelim check returned code {r.status}.')
                     await asyncio.sleep(0.5)
+                    continue
+
+                # If user has set steam ID, check if they gave that instead of steam64 ID.
+                if 'The specified profile could not be found.' in resp:
+                    url_vers = 'id'
                     continue
 
                 m = re.search(r'<steamID64>(?P<id>\w+)</steamID64>', resp)
@@ -219,17 +225,19 @@ async def set_steam_user(putter, ps_user, steam_user, ctx):
 
     userdata = await get_steam_user(steam_user)
     if userdata:
+        persona_name = userdata['personaname']
+        id64 = userdata['steamid']
         steam_list = pd.read_csv('steam.txt')
 
         existing_user = steam_list[steam_list['user'] == ps_user]
         if existing_user.empty:
-            new_user = pd.DataFrame([[ps_user, steam_user]], columns=['user', 'steam'])
+            new_user = pd.DataFrame([[ps_user, id64]], columns=['user', 'steam'])
             steam_list = steam_list.append(new_user)
         else:
-            steam_list.loc[steam_list['user'] == ps_user, 'steam'] = steam_user
-        
+            steam_list.loc[steam_list['user'] == ps_user, 'steam'] = id64
+
         steam_list.to_csv('steam.txt', index=False)
-        await putter(f'{prefix} Set {ps_user}\'s Steam to {steam_user}.')
+        await putter(f'{prefix} Set {ps_user}\'s Steam to {persona_name}.')
     else:
         await putter(f'{prefix} Could not find steam user {steam_user}. Make sure to use the ID in the URL!')
 
@@ -243,7 +251,11 @@ async def gen_uhtml_steam_game(game_id, recent_hours, total_hours):
             if r.status != 200:
                 return None
 
-            game_info = json.loads(resp)[str(game_id)]['data']
+            temp_json = json.loads(resp)[str(game_id)]
+            if not temp_json['success']:
+                return None
+
+            game_info = temp_json['data']
 
             # NSFW games
             if 1 in game_info['content_descriptors']['ids']:
@@ -289,8 +301,10 @@ async def show_steam_user(putter, username, true_caller, ctx):
             async with session.get(f'{STEAM_API}IPlayerService/GetRecentlyPlayedGames/v0001/?key={steam_key}&steamid={id64}&count=all') as r:
                 resp = await r.text()
 
-                if json.loads(resp)['response']:
-                    recent_games = json.loads(resp)['response']['games']
+                temp_json = json.loads(resp)
+                if temp_json['response']:
+                    if 'games' in temp_json['response']:
+                        recent_games = temp_json['response']['games']
 
         game_uhtmls = []
         for game in recent_games:
