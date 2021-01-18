@@ -10,6 +10,7 @@ from PIL import ImageFile
 from urllib import request as ulreq
 
 from constants import ANIME_ROOM, LEAGUE_ROOM, VG_ROOM
+from constants import ANIME_GENRES, MANGA_GENRES, ANIME_TYPES, MANGA_TYPES, LEAGUE_CATS
 from constants import JIKAN_API, DDRAGON_API, DDRAGON_IMG, DDRAGON_SPL
 from constants import VG_QUESTION_LEN, TIMER_USER
 
@@ -101,7 +102,7 @@ class TriviaGame:
             self.scoreboard = timer
 
     async def start(self, n=10, diff=BASE_DIFF, categories=['all'],
-                    by_rating=False):
+                    excludecats=False, by_rating=False):
         self.active = True
 
         if diff > 10:
@@ -110,6 +111,7 @@ class TriviaGame:
             diff = 1
         self.questions.diff = diff
         self.questions.categories = categories
+        self.questions.excludecats = excludecats
         self.questions.by_rating = by_rating
 
         asyncio.create_task(self.questions.gen_list(n=n),
@@ -157,10 +159,12 @@ class QuestionList:
     def __init__(self, room):
         self.diff = BASE_DIFF
         self.categories = ['all']
+        self.excludecats = False
         self.by_rating = False
         self.room = room
         self.q_bases = []
         self.questions = asyncio.Queue()
+        self.series_exist = True
 
     async def gen_list(self, n):
         async with aiohttp.ClientSession() as session:
@@ -193,17 +197,36 @@ class QuestionList:
         return url
 
     async def gen_am_base(self, session):
-        while True:
-            media = ['anime', 'manga']
+        while self.series_exist:
+            media = []
+            genres = {'anime': [], 'manga': []}
+
             if 'all' not in self.categories:
-                media = [c for c in ('anime', 'manga') if c in self.categories]
+                for c in self.categories:
+                    if c in ANIME_TYPES or c == 'anime':
+                        media.append(('anime', c))
+                    if c in MANGA_TYPES or c == 'manga':
+                        media.append(('manga', c))
+                    
+                    if c in ANIME_GENRES:
+                        genres['anime'].append(ANIME_GENRES[c])
+                    if c in MANGA_GENRES:
+                        genres['manga'].append(MANGA_GENRES[c])
+
             if len(media) == 0:
-                media = ['anime', 'manga']
-            medium = ''
+                media = [('anime', ''), ('manga', '')]
+
+            medium, sub_medium = random.choice(media)
+            genre_code = random.choice(genres[medium])
+            if self.excludecats:
+                genre_code = ','.join(map(str, genres[medium]))
+
+            # Yes, it's backwards on jikan, idk.
+            g_exclude = 1
+            if self.excludecats:
+                g_exclude = 0
+
             rank = 0
-
-            medium = random.choice(media)
-
             diff_scale = 0
             if medium == 'anime':
                 diff_scale = AN_DIFF_SCALE
@@ -213,27 +236,60 @@ class QuestionList:
             while rank < 1:
                 rank = int(random.gauss(diff_scale * (self.diff - 2),
                                         (diff_scale * self.diff) // 2))
+            # Adjust rank for smaller categories
+            if (sub_medium and sub_medium != 'anime' and sub_medium != 'manga') or genre_code:
+                rank = rank // 12 + 1
 
             all_series = {}
             page = (rank - 1) // 50 + 1
-            sort_method = 'bypopularity'
+            sort_method = 'members'
             if self.by_rating:
-                sort_method = ''
+                sort_method = 'score'
 
-            async with session.get(JIKAN_API + '{}/{}/{}/{}'.format('top', medium, page, sort_method)) as r:
+            url = (f'{JIKAN_API}search/{medium}?q=&type={sub_medium}&genre={genre_code}&'
+                   f'genre_exclude={g_exclude}&page=1&order_by={sort_method}&sort=desc')
+
+            async with session.get(url) as r:
+                resp = await r.text()
+
+                if r.status == 404:
+                    self.series_exist = False
+                    for task in asyncio.all_tasks():
+                        if task.get_name() == 'trivia-{}'.format(self.room):
+                            task.cancel()
+                            break
+                elif resp:
+                    if len(json.loads(resp)['results']) == 0:
+                        self.series_exist = False
+                        for task in asyncio.all_tasks():
+                            if task.get_name() == 'trivia-{}'.format(self.room):
+                                task.cancel()
+                                break
+
+                await asyncio.sleep(2)
+
+            async with session.get(url.replace('page=1', f'page={page}')) as r:
                 resp = await r.text()
 
                 if r.status == 403:
                     print('Got rate limited by Jikan on top {}.'.format(medium))
                     await asyncio.sleep(10)
                     continue
+                # Page number/rank is too large, reroll
+                elif r.status == 404:
+                    await asyncio.sleep(2)
+                    continue
 
-                all_series = json.loads(resp)['top']
+                all_series = json.loads(resp)['results']
 
             await asyncio.sleep(2)    # Jikan rate limits to 30 queries/min
 
             series_data = {}
-            series = all_series[(rank%50)-1]
+
+            try:
+                series = all_series[(rank%50)-1]
+            except IndexError:
+                series = random.choice(all_series)
             async with session.get(JIKAN_API + '{}/{}'.format(medium, series['mal_id'])) as r:
                 resp = await r.text()
                 series_data = json.loads(resp)
@@ -247,13 +303,7 @@ class QuestionList:
             
             valid_series = True
 
-            # Exclude non-manga manga for now.
-            if medium == 'manga' and series_data['type'] != 'Manga':
-                print(series_data['title'])
-                print(series_data['type'])
-                valid_series = False
-
-            # No H.
+            # No H/NSFW.
             for genre in series_data['genres']:
                 if genre['mal_id'] == 12:
                     valid_series = False
@@ -271,14 +321,16 @@ class QuestionList:
             return {'img_url': series_data['image_url'],
                     'answers': aliases,
                     'medium': medium,
+                    'sub_medium': sub_medium,
+                    'genre': genre_code,
                     'rank': rank}
 
     async def gen_am_question(self, session):
         base = await self.gen_am_base(session)
-        while self.duplicate_check({k:base[k] for k in ('medium', 'rank') if k in base}):
+        while self.duplicate_check({k:base[k] for k in ('medium', 'sub_medium', 'genre', 'rank') if k in base}):
             base = await self.gen_am_base(session)
         
-        self.q_bases.append({k:base[k] for k in ('medium', 'rank') if k in base})
+        self.q_bases.append({k:base[k] for k in ('medium', 'sub_medium', 'genre', 'rank') if k in base})
 
         img_url = gen_uhtml_img_code(base['img_url'], height_resize=PIC_SIZE)
         
@@ -288,11 +340,15 @@ class QuestionList:
     async def gen_lol_base(self, session, data):
         base = {}
 
-        qtypes = ['skins', 'spells', 'items']
+        qtypes = []
         if 'all' not in self.categories:
-            qtypes = [c for c in ('skins', 'spells', 'items') if c in self.categories]
+            qtypes = [c for c in LEAGUE_CATS if c in self.categories]
+
+        if self.excludecats:
+            qtypes = LEAGUE_CATS - qtypes
+
         if len(qtypes) == 0:
-            qtypes = ['skins', 'spells', 'items']
+            qtypes = LEAGUE_CATS
         
         if len(qtypes) == 3:
             data['qtype'] = random.choices(qtypes, weights=[4, 2, 4])[0]

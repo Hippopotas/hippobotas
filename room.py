@@ -23,9 +23,9 @@ class Room:
 		self.trivia = TriviaGame(self.roomname)
 
 	async def trivia_game(self, putter, i_putter, n=10, diff=3,
-						  categories=['all'], by_rating=False, autoskip=20):
+						  categories=['all'], excludecats=False, by_rating=False, autoskip=20):
 		try:
-			await self.trivia.start(n, diff, categories, by_rating)
+			await self.trivia.start(n, diff, categories, excludecats, by_rating)
 
 			for _ in range(n):
 				await asyncio.sleep(5)
@@ -44,6 +44,8 @@ class Room:
 				self.trivia.correct.clear()
 
 		except asyncio.CancelledError:
+			if not self.trivia.questions.series_exist:
+				await putter(self.roomname + '|There are no series for some combination(s) of these categories.')
 			for task in asyncio.all_tasks():
 				if task.get_name() == 'tquestions-{}'.format(self.roomname):
 					task.cancel()
