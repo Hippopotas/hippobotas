@@ -242,9 +242,7 @@ async def set_steam_user(putter, ps_user, steam_user, ctx):
         await putter(f'{prefix} Could not find steam user {steam_user}. Make sure to use the ID in the URL!')
 
 
-async def gen_uhtml_steam_game(game_id, recent_hours, total_hours):
-    game_info = None
-
+async def steam_game_info(game_id):
     async with aiohttp.ClientSession(trust_env=True) as session:
         async with session.get(f'https://store.steampowered.com/api/appdetails/?appids={game_id}') as r:
             resp = await r.text()
@@ -260,6 +258,15 @@ async def gen_uhtml_steam_game(game_id, recent_hours, total_hours):
             # NSFW games
             if 1 in game_info['content_descriptors']['ids']:
                 return None
+
+    return game_info
+
+
+async def gen_uhtml_steam_game(game_id, recent_hours, total_hours):
+    game_info = await steam_game_info(game_id)
+
+    if not game_info:
+        return None
 
     game_name = game_info['name']
     img_uhtml = gen_uhtml_img_code(game_info['header_image'], height_resize=50)
@@ -340,6 +347,48 @@ async def show_steam_user(putter, username, true_caller, ctx):
         await putter(f'{prefix}/adduhtml {username}-steam, {steam_uhtml}')
     else:
         await putter(f'{prefix} Could not find the Steam account {username}. ')
+
+
+async def steam_user_rand_series(putter, id64, username, caller, ctx):
+    true_caller = User.find_true_name(caller)
+
+    prefix = f'{ctx}|'
+    if ctx == 'pm':
+        prefix = f'|/w {true_caller},'
+
+    games = []
+    async with aiohttp.ClientSession(trust_env=True) as session:
+        steam_key = os.getenv('STEAM_KEY')
+        async with session.get(f'{STEAM_API}IPlayerService/GetOwnedGames/v0001/?key={steam_key}&steamid={id64}') as r:
+            resp = await r.text()
+
+            try:
+                games = json.loads(resp)['response']['games']
+            except:
+                await putter(f'{prefix} No games found for {username} with the given specifications.')
+                return                
+
+    game_info = None
+    while True:
+        if len(games) == 0:
+            await putter(f'{prefix} No games found for {username} with the given specifications.')
+            return                
+
+        rand_game = random.choice(games)
+
+        game_id = rand_game['appid']
+        game_info = await steam_game_info(game_id)
+
+        if not game_info:
+            games.remove(rand_game)
+            await asyncio.sleep(1)
+            continue
+        else:
+            break
+
+    rand_title = game_info['name']
+    msg = f'{prefix}{caller} rolled {rand_title}'
+    await putter(msg)
 
 
 class User:

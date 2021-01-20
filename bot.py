@@ -21,7 +21,7 @@ from constants import JIKAN_API, DDRAGON_API, DDRAGON_IMG, DDRAGON_SPL
 from constants import TIMER_USER, OWNER
 from constants import METRONOME_BATTLE
 from constants import PLEB_URL
-from user import User, set_mal_user, show_mal_user, mal_user_rand_series, set_steam_user, show_steam_user
+from user import User, set_mal_user, show_mal_user, mal_user_rand_series, set_steam_user, show_steam_user, steam_user_rand_series
 from room import Room, trivia_leaderboard_msg
 from trivia import gen_uhtml_img_code
 
@@ -88,7 +88,7 @@ def steam_arg_parser(s, caller):
         args (Namespace): contains the arguments as methods
     '''
     parser = argparse.ArgumentParser()
-    parser.add_argument('-r', '--roll', type=bool, default=False)
+    parser.add_argument('-r', '--roll', action='store_true')
     parser.add_argument('username', type=str, nargs='*', default=[caller])
 
     args = None
@@ -595,7 +595,9 @@ class Bot:
                 steam_user = existing_user.iloc[0]['steam']
 
                 if args.roll:
-                    msg = 'Coming soon TM'
+                    asyncio.create_task(steam_user_rand_series(self.outgoing.put, steam_user,
+                                                               args.username, caller, ctx),
+                                        name='randsteam-{}'.format(args.username))
                 else:
                     asyncio.create_task(show_steam_user(self.outgoing.put, steam_user, true_caller, ctx),
                                         name='showsteam-{}'.format(args.username))
@@ -649,7 +651,7 @@ class Bot:
             trivia_status = trivia_game.active
 
             if (command[1] == 'start' and not trivia_status and
-                    User.compare_ranks(caller[0], '%')):
+                    (User.compare_ranks(caller[0], '%') or true_caller == OWNER)):
 
                 args = None
                 if len(command) > 2:

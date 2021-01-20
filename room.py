@@ -24,6 +24,10 @@ class Room:
 
 	async def trivia_game(self, putter, i_putter, n=10, diff=3,
 						  categories=['all'], excludecats=False, by_rating=False, autoskip=20):
+		if self.trivia.active:
+			await putter(self.roomname + '|There is already a running trivia!')
+			return
+
 		try:
 			await self.trivia.start(n, diff, categories, excludecats, by_rating)
 

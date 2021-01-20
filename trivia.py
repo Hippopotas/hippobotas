@@ -107,8 +107,8 @@ class TriviaGame:
                     excludecats=False, by_rating=False):
         self.active = True
 
-        if diff > 10:
-            diff = 10
+        if diff > 15:
+            diff = 15
         if diff < 1:
             diff = 1
         self.questions.diff = diff
@@ -251,7 +251,7 @@ class QuestionList:
                                         (diff_scale * self.diff) // 2))
             # Adjust rank for smaller categories
             if (sub_medium and sub_medium != 'anime' and sub_medium != 'manga') or genre_code:
-                rank = math.ceil(rank / 10)
+                rank = math.ceil(rank / 8)
 
             all_series = {}
             page = (rank - 1) // 50 + 1
