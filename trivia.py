@@ -1,8 +1,10 @@
 import aiohttp
 import asyncio
 import json
+import math
 import pandas as pd
 import random
+import re
 import requests
 import time
 
@@ -203,11 +205,11 @@ class QuestionList:
 
             if 'all' not in self.categories:
                 for c in self.categories:
-                    if c in ANIME_TYPES or c == 'anime':
+                    if c in ANIME_TYPES:
                         media.append(('anime', c))
-                    if c in MANGA_TYPES or c == 'manga':
+                    if c in MANGA_TYPES:
                         media.append(('manga', c))
-                    
+
                     if c in ANIME_GENRES:
                         genres['anime'].append(ANIME_GENRES[c])
                     if c in MANGA_GENRES:
@@ -216,7 +218,18 @@ class QuestionList:
             if len(media) == 0:
                 media = [('anime', ''), ('manga', '')]
 
+            exclude_media = []
+            if self.excludecats:
+                exclude_media = [p[1] for p in media]
+                media = [('anime', ''), ('manga', '')]
+
             medium, sub_medium = random.choice(media)
+            # Handle 'anime'/'manga' exclusion here
+            if medium in exclude_media:
+                continue
+
+            if len(genres[medium]) == 0:
+                genres[medium] = ['']
             genre_code = random.choice(genres[medium])
             if self.excludecats:
                 genre_code = ','.join(map(str, genres[medium]))
@@ -238,7 +251,7 @@ class QuestionList:
                                         (diff_scale * self.diff) // 2))
             # Adjust rank for smaller categories
             if (sub_medium and sub_medium != 'anime' and sub_medium != 'manga') or genre_code:
-                rank = rank // 12 + 1
+                rank = math.ceil(rank / 10)
 
             all_series = {}
             page = (rank - 1) // 50 + 1
@@ -290,6 +303,11 @@ class QuestionList:
                 series = all_series[(rank%50)-1]
             except IndexError:
                 series = random.choice(all_series)
+
+            # Reroll on hitting excluded medium
+            if self.excludecats and re.sub(r'[^a-zA-Z0-9]', '', series['type']).lower() in exclude_media:
+                continue
+
             async with session.get(JIKAN_API + '{}/{}'.format(medium, series['mal_id'])) as r:
                 resp = await r.text()
                 series_data = json.loads(resp)

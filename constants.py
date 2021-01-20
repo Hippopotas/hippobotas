@@ -65,5 +65,5 @@ MAL_GENRES = {'action': 1,
 ANIME_GENRES = {**MAL_GENRES, 'thriller': 41, 'seinen': 42, 'josei': 43}
 MANGA_GENRES = {**MAL_GENRES, 'seinen': 41, 'josei': 42, 'doujinshi': 43, 'genderbender': 44, 'thriller': 45}
 
-ANIME_TYPES = ['tv', 'ova', 'movie', 'special', 'ona', 'music']
+ANIME_TYPES = ['anime', 'tv', 'ova', 'movie', 'special', 'ona', 'music']
 MANGA_TYPES = ['manga', 'novel', 'oneshot', 'doujin', 'manhwa', 'manhua']

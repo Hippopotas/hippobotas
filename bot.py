@@ -125,7 +125,7 @@ def trivia_arg_parser(s):
     try:
         args = parser.parse_args(shlex.split(s))
 
-        all_categories = ['all', 'anime', 'manga'] + ANIME_TYPES + MANGA_TYPES + \
+        all_categories = ['all'] + ANIME_TYPES + MANGA_TYPES + \
                          list(ANIME_GENRES.keys()) + list(MANGA_GENRES.keys()) + \
                          LEAGUE_CATS
         fixed_categories = []
@@ -149,7 +149,7 @@ def trivia_arg_parser(s):
         args.categories = fixed_categories
     # Incorrectly formatted input results in args = None
     except SystemExit:
-        pass
+        return
     except ValueError:
         return
 
