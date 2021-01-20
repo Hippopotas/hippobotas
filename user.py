@@ -324,7 +324,11 @@ async def show_steam_user(putter, username, true_caller, ctx):
 
             if len(game_uhtmls) >= 2:
                 break
-        
+
+        # Fix spacing issues by appending blank game entry.
+        if len(game_uhtmls) == 1:
+            game_uhtmls.append('<tr><td style=\'padding: 0px 5px 5px 5px\'><div style=\'min-height:50px\'></div></td></tr>')
+
         total_recent_hours = 0
         for game in recent_games:
             total_recent_hours += game['playtime_2weeks']
