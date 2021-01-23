@@ -8,7 +8,28 @@ import re
 
 from constants import ANIME_ROOM
 from constants import JIKAN_API, IMG_NOT_FOUND, STEAM_API
+from constants import ANIME_TYPES, MANGA_TYPES
 from trivia import gen_uhtml_img_code
+
+
+async def check_mal_nsfw(medium, series):
+    async with aiohttp.ClientSession(trust_env=True) as session:
+        retry = 0
+        while retry < 3:
+            async with session.get(JIKAN_API + '{}/{}'.format(medium, series)) as r:
+                resp = r.text()
+                series_data = json.loads(resp)
+
+                if r.status != 200:
+                    retry += 1
+                    await asyncio.sleep(2)
+                    continue
+                    
+                for genre in series_data['genres']:
+                    if genre['mal_id'] == 12:
+                        return True
+                
+                return False
 
 
 async def get_mal_user(username, retries=5):
@@ -79,11 +100,15 @@ async def show_mal_user(putter, username, true_caller, ctx):
             top_series_img = IMG_NOT_FOUND
 
             fav_series = userdata['favorites'][medium]
-            if fav_series:
+            while fav_series:
                 rand_fav = random.choice(fav_series)
-                top_series = rand_fav['name']
-                top_series_url = rand_fav['url']
-                top_series_img = rand_fav['image_url']
+                if check_mal_nsfw(medium, rand_fav['mal_id']):
+                    fav_series.remove(rand_fav)
+                else:
+                    top_series = rand_fav['name']
+                    top_series_url = rand_fav['url']
+                    top_series_img = rand_fav['image_url']
+                    break
 
             top_series_uhtml[medium] = (top_series, top_series_url,
                                         gen_uhtml_img_code(top_series_img, height_resize=64))
@@ -165,12 +190,21 @@ async def mal_user_rand_series(putter, username, caller, media, ctx):
                 page += 1
                 await asyncio.sleep(0.5)    # Jikan rate-limits to 2 requests/second.
 
+    while all_series_list:
+        rand_series = random.choice(all_series_list)
+
+        medium = 'manga'
+        if User.find_true_name(rand_series['type']) in ANIME_TYPES:
+            medium = 'anime'
+        if check_mal_nsfw(medium, rand_series['mal_id']):
+            all_series_list.remove(rand_series)
+        else:
+            rand_title = rand_series['title']
+            break
+
     if not all_series_list:
         await putter(f'{prefix} No series found for {username} with the given specifications.')
         return
-
-    rand_series = random.choice(all_series_list)
-    rand_title = rand_series['title']
 
     msg = f'{prefix} {caller} rolled {rand_title}'
     await putter(msg)

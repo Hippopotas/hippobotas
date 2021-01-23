@@ -29,6 +29,7 @@ PS_SOCKET = 'ws://sim.smogon.com:8000/showdown/websocket'
 JOINLIST = [ANIME_ROOM, LEAGUE_ROOM, VG_ROOM, PEARY_ROOM]
 WS = None
 SUCKFILE = 'suck.txt'
+BIRTHDAYFILE = 'birthdays.txt'
 CALENDARFILE = 'calendar.txt'
 
 def is_int_str(s):
@@ -219,6 +220,31 @@ class Bot:
 
         self.mal_rooms = [ANIME_ROOM, PEARY_ROOM]
         self.steam_rooms = [VG_ROOM, PEARY_ROOM]
+
+
+    async def start_repeats(self):
+        # Start repeating processes
+        asyncio.create_task(self.birthdays(), name='birthdays')
+    
+
+    async def birthdays(self):
+        birthdays = json.load(open(BIRTHDAYFILE))
+        while True:
+            sleep_len = birthdays['next_time'] - time.time()
+
+            if sleep_len < 0:
+                sleep_len = 60 * 60 * 6
+
+                birthdays['next_time'] = time.time() + sleep_len
+                with open(BIRTHDAYFILE, 'w') as f:
+                    json.dump(birthdays, f)
+  
+            await asyncio.sleep(sleep_len)
+            await self.send_birthday_text()
+
+            birthdays['next_time'] = time.time() + 60 * 60 * 6
+            with open(BIRTHDAYFILE, 'w') as f:
+                json.dump(birthdays, f)
 
 
     async def listener(self, uri):
@@ -459,6 +485,10 @@ class Bot:
                 await self.outgoing.put('|/join ' + room)
 
 
+    async def send_birthday_text(self):
+        await self.outgoing.put(f'{ANIME_ROOM}|Please submit characters\' birthdays you would like to celebrate here: https://forms.gle/qfKSeyNtpueTBACn7')
+
+
     async def command_center(self, room, caller, command, pm=False):
         '''
         Handles command messages targeted at the bot.
@@ -508,6 +538,9 @@ class Bot:
 
             uhtml = gen_uhtml_img_code(random.choice(date_imgs), height_resize=200)
             msg = f'/adduhtml hippo-calendar, {uhtml}'
+        
+        elif command[0] == 'birthday':
+            await self.send_birthday_text()
 
         # animeandmanga
         elif command[0] == 'jibun' and room == ANIME_ROOM:
@@ -541,7 +574,7 @@ class Bot:
             mal_list = pd.read_csv('mal.txt')
             existing_user = mal_list[mal_list['user'] == args.username]
             if existing_user.empty:
-                msg = 'This user does not have a MAL set. Please set a valid account using ]addmal'
+                msg = 'This user does not have a MAL set. Please use ]addmal to set a valid account.'
             else:
                 ctx = room
                 if pm:
@@ -587,7 +620,7 @@ class Bot:
             steam_list = pd.read_csv('steam.txt')
             existing_user = steam_list[steam_list['user'] == args.username]
             if existing_user.empty:
-                msg = 'This user does not have a Steam set. Please set a valid account using ]addsteam'
+                msg = 'This user does not have a Steam set. Please use ]addsteam to set a valid account. Make sure to use the URL ID and not the Steam username.'
             else:
                 ctx = room
                 if pm:
@@ -651,7 +684,7 @@ class Bot:
             trivia_status = trivia_game.active
 
             if (command[1] == 'start' and not trivia_status and
-                    (User.compare_ranks(caller[0], '%') or true_caller == OWNER)):
+                    (User.compare_ranks(caller[0], '+') or true_caller == OWNER)):
 
                 args = None
                 if len(command) > 2:
@@ -671,7 +704,7 @@ class Bot:
                                                                         args.byrating,
                                                                         args.autoskip),
                                         name='trivia-{}'.format(room))
-            elif (command[1] == 'stop' or command[1] =='end') and User.compare_ranks(caller[0], '%'):
+            elif (command[1] == 'stop' or command[1] =='end') and User.compare_ranks(caller[0], '+'):
                 if trivia_status:
                     for task in asyncio.all_tasks():
                         if task.get_name() == 'trivia-{}'.format(room):
@@ -707,7 +740,7 @@ class Bot:
                 if room == ANIME_ROOM or room == VG_ROOM:
                     title = 'No leaderboard for this room.'
                 msg = trivia_leaderboard_msg(trivia_game.leaderboard(n=to_show), title)
-            elif command[1] == 'skip' and User.compare_ranks(caller[0], '%'):
+            elif command[1] == 'skip' and User.compare_ranks(caller[0], '+'):
                 if trivia_game.active and trivia_game.answers:
                     answer = trivia_game.answers[-1]
 
@@ -787,7 +820,7 @@ if __name__ == "__main__":
         bot = Bot()
 
         try:
-            loop.run_until_complete(asyncio.wait((bot.listener(PS_SOCKET), bot.interpreter(), bot.sender())))
+            loop.run_until_complete(asyncio.wait((bot.listener(PS_SOCKET), bot.interpreter(), bot.sender(), bot.start_repeats())))
         except:
             # Useful for debugging, since I can't figure out how else
             # to make async stuff return the actual error.
