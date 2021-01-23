@@ -201,20 +201,28 @@ class QuestionList:
     async def gen_am_base(self, session):
         while self.series_exist:
             media = []
+            anime_media = []
+            manga_media = []
             genres = {'anime': [], 'manga': []}
 
             if 'all' not in self.categories:
                 for c in self.categories:
                     if c in ANIME_TYPES:
-                        media.append(('anime', c))
+                        anime_media.append(('anime', c))
                     if c in MANGA_TYPES:
-                        media.append(('manga', c))
+                        manga_media.append(('manga', c))
 
+                for c in self.categories:
                     if c in ANIME_GENRES:
                         genres['anime'].append(ANIME_GENRES[c])
+                        if len(anime_media) == 0:
+                            anime_media = [('anime', '')]
                     if c in MANGA_GENRES:
                         genres['manga'].append(MANGA_GENRES[c])
+                        if len(manga_media) == 0:
+                            manga_media = [('manga', '')]
 
+            media = anime_media + manga_media
             if len(media) == 0:
                 media = [('anime', ''), ('manga', '')]
 

@@ -17,7 +17,7 @@ async def check_mal_nsfw(medium, series):
         retry = 0
         while retry < 3:
             async with session.get(JIKAN_API + '{}/{}'.format(medium, series)) as r:
-                resp = r.text()
+                resp = await r.text()
                 series_data = json.loads(resp)
 
                 if r.status != 200:
@@ -102,7 +102,8 @@ async def show_mal_user(putter, username, true_caller, ctx):
             fav_series = userdata['favorites'][medium]
             while fav_series:
                 rand_fav = random.choice(fav_series)
-                if check_mal_nsfw(medium, rand_fav['mal_id']):
+                is_nsfw = await check_mal_nsfw(medium, rand_fav['mal_id'])
+                if is_nsfw:
                     fav_series.remove(rand_fav)
                 else:
                     top_series = rand_fav['name']
@@ -196,7 +197,8 @@ async def mal_user_rand_series(putter, username, caller, media, ctx):
         medium = 'manga'
         if User.find_true_name(rand_series['type']) in ANIME_TYPES:
             medium = 'anime'
-        if check_mal_nsfw(medium, rand_series['mal_id']):
+        is_nsfw = await check_mal_nsfw(medium, rand_series['mal_id'])
+        if is_nsfw:
             all_series_list.remove(rand_series)
         else:
             rand_title = rand_series['title']
