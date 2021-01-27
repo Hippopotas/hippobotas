@@ -20,7 +20,7 @@ from constants import ANIME_GENRES, MANGA_GENRES, ANIME_TYPES, MANGA_TYPES, LEAG
 from constants import JIKAN_API, DDRAGON_API, DDRAGON_IMG, DDRAGON_SPL
 from constants import TIMER_USER, OWNER
 from constants import METRONOME_BATTLE
-from constants import PLEB_URL
+from constants import MAL_CHAR_URL, MAL_IMG_URL, PLEB_URL, IMG_NOT_FOUND
 from user import User, set_mal_user, show_mal_user, mal_user_rand_series, set_steam_user, show_steam_user, steam_user_rand_series
 from room import Room, trivia_leaderboard_msg
 from trivia import gen_uhtml_img_code
@@ -29,8 +29,8 @@ PS_SOCKET = 'ws://sim.smogon.com:8000/showdown/websocket'
 JOINLIST = [ANIME_ROOM, LEAGUE_ROOM, VG_ROOM, PEARY_ROOM]
 WS = None
 SUCKFILE = 'suck.txt'
-BIRTHDAYFILE = 'birthdays.txt'
-CALENDARFILE = 'calendar.txt'
+BIRTHDAYFILE = 'birthdays.json'
+CALENDARFILE = 'calendar.json'
 
 def is_int_str(s):
     '''
@@ -207,6 +207,7 @@ class Bot:
         load_dotenv()
         self.username = os.getenv('PS_USERNAME')
         self.password = os.getenv('PS_PASSWORD')
+        self.birthdays = json.load(open(BIRTHDAYFILE))
         self.calendar = json.load(open(CALENDARFILE))
         self.sucklist = pd.read_csv(SUCKFILE)
 
@@ -224,27 +225,28 @@ class Bot:
 
     async def start_repeats(self):
         # Start repeating processes
-        asyncio.create_task(self.birthdays(), name='birthdays')
+        asyncio.create_task(self.birthday_repeater(), name='birthdays')
     
 
-    async def birthdays(self):
-        birthdays = json.load(open(BIRTHDAYFILE))
+    async def birthday_repeater(self):
+        self.birthdays = json.load(open(BIRTHDAYFILE))
         while True:
-            sleep_len = birthdays['next_time'] - time.time()
+            sleep_len = self.birthdays['next_time'] - time.time()
 
             if sleep_len < 0:
                 sleep_len = 60 * 60 * 6
 
-                birthdays['next_time'] = time.time() + sleep_len
+                self.birthdays['next_time'] = time.time() + sleep_len
                 with open(BIRTHDAYFILE, 'w') as f:
-                    json.dump(birthdays, f)
+                    json.dump(self.birthdays, f)
   
             await asyncio.sleep(sleep_len)
-            await self.send_birthday_text()
+            await self.send_birthday_text(automatic=True)
 
-            birthdays['next_time'] = time.time() + 60 * 60 * 6
+            self.birthdays = json.load(open(BIRTHDAYFILE))
+            self.birthdays['next_time'] = time.time() + 60 * 60 * 6
             with open(BIRTHDAYFILE, 'w') as f:
-                json.dump(birthdays, f)
+                json.dump(self.birthdays, f)
 
 
     async def listener(self, uri):
@@ -485,8 +487,48 @@ class Bot:
                 await self.outgoing.put('|/join ' + room)
 
 
-    async def send_birthday_text(self):
-        await self.outgoing.put(f'{ANIME_ROOM}|Please submit characters\' birthdays you would like to celebrate here: https://forms.gle/qfKSeyNtpueTBACn7')
+    async def send_birthday_text(self, automatic, ctx=ANIME_ROOM):
+        self.birthdays = json.load(open(BIRTHDAYFILE))
+        today = datetime.datetime.today().strftime('%B %d')
+        birthday_chars = self.birthdays[today]
+
+        if not birthday_chars:
+            if not automatic:
+                await self.outgoing.put(f'{ctx}|No known birthdays today! Submit birthdays here: https://forms.gle/qfKSeyNtpueTBACn7')
+            return
+
+        char_uhtml = '<tr>'
+        for i, char in enumerate(birthday_chars):
+            # char formatting is [name, img suffix, MAL page suffix]
+            img_uhtml = gen_uhtml_img_code(IMG_NOT_FOUND, height_resize=64, width_resize=64)
+            if char[1]:
+                img_uhtml = gen_uhtml_img_code(f'{MAL_IMG_URL}{char[1]}', height_resize=64, width_resize=64)
+
+            char_url = MAL_CHAR_URL + char[2]
+
+            char_uhtml += (f'<td style=\'padding:5px\'>{img_uhtml}</td>'
+                            '<td style=\'padding-right:5px; width:80px\'>'
+                           f'<a href=\'{char_url}\' style=\'color:inherit\'>'
+                           f'{char[0]}</a></td>')
+
+            # Maximum of 3 characters per line
+            if i % 3 == 2:
+                char_uhtml += '</tr><tr>'
+
+        char_uhtml += '</tr>'
+
+        uhtml = ('<center><table style=\'border:3px solid #0088cc; border-spacing:0px; '
+                 'border-radius:10px; background-image:url(https://i.imgur.com/l8iJKoX.png); '
+                 'background-size:cover\'>'
+                 '<thead><tr><th colspan=6 style=\'padding:5px 5px 10px 5px\'>'
+                 'Today\'s Birthdays</th></tr></thead><tbody>'
+                f'{char_uhtml}'
+                 '<tr><td colspan=6 style=\'text-align:right; font-size:8px; '
+                 'padding: 0px 5px 5px 0px\'><a href=\'https://forms.gle/qfKSeyNtpueTBACn7\' '
+                 'style=\'color:inherit\'>Submit characters here</a></td></tr>'
+                 '</tbody></table></center>')
+
+        await self.outgoing.put(f'{ctx}|/adduhtml hippo-birthdays, {uhtml}')
 
 
     async def command_center(self, room, caller, command, pm=False):
@@ -539,8 +581,8 @@ class Bot:
             uhtml = gen_uhtml_img_code(random.choice(date_imgs), height_resize=200)
             msg = f'/adduhtml hippo-calendar, {uhtml}'
         
-        elif command[0] == 'birthday':
-            await self.send_birthday_text()
+        elif command[0] == 'birthday' and not pm:
+            await self.send_birthday_text(automatic=False, ctx=room)
 
         # animeandmanga
         elif command[0] == 'jibun' and room == ANIME_ROOM:
@@ -814,12 +856,13 @@ class Bot:
 if __name__ == "__main__":
 
     loop = asyncio.get_event_loop()
-    loop.set_debug(True)
 
     while True:
+        loop.set_debug(True)
         bot = Bot()
 
         try:
+            asyncio.set_event_loop(loop)
             loop.run_until_complete(asyncio.wait((bot.listener(PS_SOCKET), bot.interpreter(), bot.sender(), bot.start_repeats())))
         except:
             # Useful for debugging, since I can't figure out how else
@@ -830,3 +873,6 @@ if __name__ == "__main__":
             loop.close()
 
         time.sleep(30)
+
+        loop = asyncio.new_event_loop()
+        

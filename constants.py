@@ -13,6 +13,9 @@ DDRAGON_IMG = 'http://ddragon.leagueoflegends.com/cdn/11.1.1/img/'
 DDRAGON_SPL = 'http://ddragon.leagueoflegends.com/cdn/img/champion/loading/'
 STEAM_API = 'http://api.steampowered.com/'
 
+MAL_CHAR_URL = 'https://myanimelist.net/character/'
+MAL_IMG_URL = 'https://cdn.myanimelist.net/images/characters/'
+
 IMG_NOT_FOUND = 'https://i.imgur.com/Mlw966x.png'
 PLEB_URL = 'https://i.imgur.com/c9nyFqJ.png'
 
@@ -63,7 +66,7 @@ MAL_GENRES = {'action': 1,
               'psychological':40}
 
 ANIME_GENRES = {**MAL_GENRES, 'thriller': 41, 'seinen': 42, 'josei': 43}
-MANGA_GENRES = {**MAL_GENRES, 'seinen': 41, 'josei': 42, 'doujinshi': 43, 'genderbender': 44, 'thriller': 45}
+MANGA_GENRES = {**MAL_GENRES, 'seinen': 41, 'josei': 42, 'genderbender': 44, 'thriller': 45}
 
 ANIME_TYPES = ['anime', 'tv', 'ova', 'movie', 'special', 'ona', 'music']
-MANGA_TYPES = ['manga', 'novel', 'oneshot', 'doujin', 'manhwa', 'manhua']
+MANGA_TYPES = ['manga', 'novel', 'oneshot', 'manhwa', 'manhua']
