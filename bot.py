@@ -238,7 +238,7 @@ class Bot:
 
                 self.birthdays['next_time'] = time.time() + sleep_len
                 with open(BIRTHDAYFILE, 'w') as f:
-                    json.dump(self.birthdays, f)
+                    json.dump(self.birthdays, f, indent=4)
   
             await asyncio.sleep(sleep_len)
             await self.send_birthday_text(automatic=True)
@@ -246,7 +246,7 @@ class Bot:
             self.birthdays = json.load(open(BIRTHDAYFILE))
             self.birthdays['next_time'] = time.time() + 60 * 60 * 6
             with open(BIRTHDAYFILE, 'w') as f:
-                json.dump(self.birthdays, f)
+                json.dump(self.birthdays, f, indent=4)
 
 
     async def listener(self, uri):
@@ -490,6 +490,7 @@ class Bot:
     async def send_birthday_text(self, automatic, ctx=ANIME_ROOM):
         self.birthdays = json.load(open(BIRTHDAYFILE))
         today = datetime.datetime.today().strftime('%B %d')
+        short_today = datetime.datetime.today().strftime('%b %d')
         birthday_chars = self.birthdays[today]
 
         if not birthday_chars:
@@ -499,12 +500,19 @@ class Bot:
 
         char_uhtml = '<tr>'
         for i, char in enumerate(birthday_chars):
-            # char formatting is [name, img suffix, MAL page suffix]
-            img_uhtml = gen_uhtml_img_code(IMG_NOT_FOUND, height_resize=64, width_resize=64)
-            if char[1]:
-                img_uhtml = gen_uhtml_img_code(f'{MAL_IMG_URL}{char[1]}', height_resize=64, width_resize=64)
+            img_uhtml = ''
+            char_url = ''
+            if len(char) == 3:
+                # MAL char formatting is [name, img suffix, MAL page suffix]
+                img_uhtml = gen_uhtml_img_code(IMG_NOT_FOUND, height_resize=64, width_resize=64)
+                if char[1]:
+                    img_uhtml = gen_uhtml_img_code(f'{MAL_IMG_URL}{char[1]}', height_resize=64, width_resize=64)
 
-            char_url = MAL_CHAR_URL + char[2]
+                char_url = MAL_CHAR_URL + char[2]
+
+            elif len(char) == 2:
+                # A/M staff formatting is [name, img link]
+                img_uhtml = f'<center><img src=\'{char[1]}\' width=64 height=64></center>'
 
             char_uhtml += (f'<td style=\'padding:5px\'>{img_uhtml}</td>'
                             '<td style=\'padding-right:5px; width:80px\'>'
@@ -521,7 +529,7 @@ class Bot:
                  'border-radius:10px; background-image:url(https://i.imgur.com/l8iJKoX.png); '
                  'background-size:cover\'>'
                  '<thead><tr><th colspan=6 style=\'padding:5px 5px 10px 5px\'>'
-                 'Today\'s Birthdays</th></tr></thead><tbody>'
+                f'Today\'s Birthdays ({short_today})</th></tr></thead><tbody>'
                 f'{char_uhtml}'
                  '<tr><td colspan=6 style=\'text-align:right; font-size:8px; '
                  'padding: 0px 5px 5px 0px\'><a href=\'https://forms.gle/qfKSeyNtpueTBACn7\' '
@@ -867,6 +875,7 @@ if __name__ == "__main__":
         except:
             # Useful for debugging, since I can't figure out how else
             # to make async stuff return the actual error.
+            print('Loop broke!')
             import traceback
             traceback.print_exc()
         finally:
