@@ -767,10 +767,6 @@ class Bot:
                 user = ''
                 score = 0
 
-                # Persistent trivia scores are disabled in animeandmanga.
-                if room == ANIME_ROOM or room == VG_ROOM:
-                    return
-
                 if len(command) > 2:
                     user, score = trivia_game.userscore(User.find_true_name(''.join(command[2:])))
                 else:
@@ -779,16 +775,14 @@ class Bot:
                 if user is None:
                     msg = 'User not found.'
                 else:
-                    msg = '{} has {} points in trivia games here.'.format(user, score)
+                    msg = '{} has earned {} points in trivia.'.format(user, score)
             elif command[1] == 'leaderboard':
                 to_show = 5
                 if len(command) > 2:
                     if is_int_str(command[2]):
                         to_show = int(command[2])
 
-                title = 'Semi-weekly Trivia Leaderboard'
-                if room == ANIME_ROOM or room == VG_ROOM:
-                    title = 'No leaderboard for this room.'
+                title = 'Trivia Leaderboard'
                 msg = trivia_leaderboard_msg(trivia_game.leaderboard(n=to_show), title)
             elif command[1] == 'skip' and User.compare_ranks(caller[0], '+'):
                 if trivia_game.active and trivia_game.answers:

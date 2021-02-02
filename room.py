@@ -62,10 +62,6 @@ class Room:
 			await self.trivia.end(putter)
 			await asyncio.sleep(1)
 
-			msg = trivia_leaderboard_msg(leaderboard, 'Semi-weekly Trivia Leaderboard')
-			# No persistent scores for the animeandmanga room.
-			if self.roomname == ANIME_ROOM or self.roomname == VG_ROOM:
-				msg = trivia_leaderboard_msg(leaderboard, 'Round Standings')
-				self.trivia = TriviaGame(self.roomname)
+			msg = trivia_leaderboard_msg(leaderboard, 'Trivia Leaderboard')
 
 			await putter(self.roomname + '|' + msg)
