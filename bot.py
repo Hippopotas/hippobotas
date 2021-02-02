@@ -489,8 +489,8 @@ class Bot:
 
     async def send_birthday_text(self, automatic, ctx=ANIME_ROOM):
         self.birthdays = json.load(open(BIRTHDAYFILE))
-        today = datetime.datetime.today().strftime('%B %d')
-        short_today = datetime.datetime.today().strftime('%b %d')
+        today = datetime.datetime.today().strftime('%B %d').replace(' 0', ' ')
+        short_today = datetime.datetime.today().strftime('%b %d').replace(' 0', ' ')
         birthday_chars = self.birthdays[today]
 
         if not birthday_chars:
