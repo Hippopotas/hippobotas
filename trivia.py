@@ -74,9 +74,11 @@ class TriviaGame:
         self.room = room
         self.questions = QuestionList(self.room)
 
-        self.scoreboard = pd.read_csv('trivia/{}.txt'.format(self.room))
-        if self.room == ANIME_ROOM or self.room == VG_ROOM:
+        try:
+            self.scoreboard = pd.read_csv('trivia/{}.txt'.format(self.room))
+        except FileNotFoundError:
             self.scoreboard = pd.DataFrame(columns=['user', 'score'])
+        self.reset_scoreboard()
 
     async def autoskip(self, skip_time, putter):
         answer = self.answers[0]
@@ -97,15 +99,17 @@ class TriviaGame:
         timer = self.scoreboard[self.scoreboard['user'] == TIMER_USER]
         # Room that does not support auto-reset
         if timer.empty:
+            self.scoreboard = pd.DataFrame(columns=['user', 'score'])
             return
         
-        if (time.time() - timer['score'][0]) > length:
+        if (time.time() - timer['score'].iloc[0]) > length:
             timer.loc[timer['user'] == TIMER_USER, 'score'] = time.time()
             self.scoreboard = timer
 
     async def start(self, n=10, diff=BASE_DIFF, categories=['all'],
                     excludecats=False, by_rating=False):
         self.active = True
+        self.reset_scoreboard()
 
         if diff > 15:
             diff = 15
