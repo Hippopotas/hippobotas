@@ -8,8 +8,8 @@ VG_QUESTION_LEN = 300
 TIMER_USER = 'T*'
 
 JIKAN_API = 'https://api.jikan.moe/v3/'
-DDRAGON_API = 'http://ddragon.leagueoflegends.com/cdn/11.1.1/data/en_US/'
-DDRAGON_IMG = 'http://ddragon.leagueoflegends.com/cdn/11.1.1/img/'
+DDRAGON_API = 'http://ddragon.leagueoflegends.com/cdn/11.2.1/data/en_US/'
+DDRAGON_IMG = 'http://ddragon.leagueoflegends.com/cdn/11.2.1/img/'
 DDRAGON_SPL = 'http://ddragon.leagueoflegends.com/cdn/img/champion/loading/'
 STEAM_API = 'http://api.steampowered.com/'
 
