@@ -729,7 +729,7 @@ class Bot:
             if metric == 'avg_wpm':
                 wpmboard = wpmboard[wpmboard['recent_runs'].map(len) >= 5]
             wpmboard = wpmboard.reset_index().head(n=5)[['user', metric]].values.tolist()
-            msg = trivia_leaderboard_msg(wpmboard, f'Fastest WPM {metric_title}', name='wpmboard')
+            msg = trivia_leaderboard_msg(wpmboard, f'Fastest WPM {metric_title}', name='wpmboard', metric='WPM')
 
         elif command[0] == 'wpm_reset':
             try:

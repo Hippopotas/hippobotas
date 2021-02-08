@@ -5,13 +5,13 @@ from user import User
 from trivia import TriviaGame
 
 
-def trivia_leaderboard_msg(leaderboard, title, name='tleaderboard'):
+def trivia_leaderboard_msg(leaderboard, title, name='tleaderboard', metric='pts'):
     msg = (f'/adduhtml {name}, '
             '<center><table><tr><th colspan=\'3\' style=\'border-bottom:1px solid\'>'
             '{}</th></tr>'.format(title))
 
     for i, [user, score] in enumerate(leaderboard):
-        msg += '<tr><td>{}</td><th>{}</th><td>{} pts</td></tr>'.format(i+1, user, int(score))
+        msg += '<tr><td>{}</td><th>{}</th><td>{} {}</td></tr>'.format(i+1, user, int(score), metric)
 
     msg += '</table></center>'
     return msg
