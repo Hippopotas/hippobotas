@@ -29,8 +29,11 @@ PS_SOCKET = 'ws://sim.smogon.com:8000/showdown/websocket'
 JOINLIST = [ANIME_ROOM, LEAGUE_ROOM, VG_ROOM, PEARY_ROOM]
 WS = None
 SUCKFILE = 'suck.txt'
+SENTENCEFILE = 'sentences.txt'
+WPMFILE = 'wpm.txt'
 BIRTHDAYFILE = 'birthdays.json'
 CALENDARFILE = 'calendar.json'
+
 
 def is_int_str(s):
     '''
@@ -215,20 +218,36 @@ class Bot:
         self.outgoing = asyncio.Queue()
 
         self.roomlist = {}
-        self.battles = {}
 
-        self.allow_laddering = True
+        self.battles = {}
+        self.allow_laddering = False
+
+        self.typers = {}
+        self.wpms = pd.read_csv(WPMFILE, converters={'recent_runs': eval}).set_index('user')
+        with open(SENTENCEFILE) as f:
+            for i, _ in enumerate(f):
+                pass
+            self.num_typing_sentences = i+1
 
         self.mal_rooms = [ANIME_ROOM, PEARY_ROOM]
         self.steam_rooms = [VG_ROOM, PEARY_ROOM]
 
 
     async def start_repeats(self):
-        # Start repeating processes
+        '''
+        Start the bot's repeating processes.
+
+        Args:
+        '''
         asyncio.create_task(self.birthday_repeater(), name='birthdays')
     
 
     async def birthday_repeater(self):
+        '''
+        Repeating process for birthday display.
+        
+        Args:
+        '''
         self.birthdays = json.load(open(BIRTHDAYFILE))
         while True:
             sleep_len = self.birthdays['next_time'] - time.time()
@@ -247,6 +266,42 @@ class Bot:
             self.birthdays['next_time'] = time.time() + 60 * 60 * 6
             with open(BIRTHDAYFILE, 'w') as f:
                 json.dump(self.birthdays, f, indent=4)
+
+
+    async def wpm(self, true_user):
+        '''
+        Starts a typing test for a user. Takes from typeracer database.
+
+        Args:
+            true_user (str): user to run the typing test for
+        '''
+        if true_user in self.typers:
+            return
+
+        await self.outgoing.put(f'|/w {true_user}, Typing test starting soon...')
+
+        idx = random.randrange(self.num_typing_sentences)
+        sentence = ''
+        with open('sentences.txt') as f:
+            for i, l in enumerate(f):
+                if i == idx:
+                    sentence = l[:-1]
+                    break
+        
+        words = sentence.split(' ')
+
+        test_str = ''
+        for i, w in enumerate(words):
+            if i % 2 == 0:
+                test_str += u'\u2060\u2800'
+            else:
+                test_str += u' \u2060'
+            test_str += w
+
+        await asyncio.sleep(5)
+
+        self.typers[true_user] = (time.time(), words)
+        await self.outgoing.put(f'|/w {true_user}, {test_str}')
 
 
     async def listener(self, uri):
@@ -321,6 +376,72 @@ class Bot:
             await self.login(parts[2] + "|" + parts[3])
         elif parts[1] == 'updateuser':
             await self.login_check(parts[2], parts[3])
+
+        # Typing test responses
+        elif parts[1] == 'pm' and User.find_true_name(parts[2]) in self.typers:
+            true_caller = User.find_true_name(parts[2])
+            sec_elapsed = time.time() - self.typers[true_caller][0]
+            answer_key = self.typers[true_caller][1]
+            typing_wc = len(answer_key)
+            del self.typers[true_caller]
+
+            words = parts[4].split(' ')
+            if len(words) < (0.85*typing_wc):
+                await self.outgoing.put(f'|/w {true_caller}, Too inaccurate for a reasonable measurement.')
+                return
+
+            correct_words = []
+            for w in words:
+                try:
+                    idx = answer_key.index(w)
+                except ValueError:
+                    continue
+                correct_words.append(answer_key.pop(idx))
+
+            if len(correct_words) < (0.85*typing_wc):
+                await self.outgoing.put(f'|/w {true_caller}, Too inaccurate for a reasonable measurement.')
+                return
+
+            speed = round(len(correct_words) / (sec_elapsed / 60), 1)
+            acc = len(correct_words) / typing_wc * 100
+            msg = f'You typed at {speed} WPM with {acc:0.1f}% accuracy. '
+
+            if speed >= 160:
+                msg += 'Sending results for manual review.'
+                await self.outgoing.put(f'|/w {true_caller}, {msg}')
+                await self.outgoing.put(f'|/w {OWNER}, {true_caller} had {speed} WPM with {acc:0.1f}% accuracy.')
+                await self.outgoing.put(f'|/w {OWNER}, They typed: {parts[4]}')
+
+                return
+
+            try:
+                wpminfo = self.wpms.loc[true_caller]
+            except KeyError:
+                wpminfo = pd.DataFrame([[true_caller, speed, speed, [speed]]],
+                                       columns=['user', 'top_wpm', 'avg_wpm', 'recent_runs'])
+                wpminfo = wpminfo.set_index('user')
+                self.wpms = self.wpms.append(wpminfo)
+                msg += 'Set a new record!'
+            else:
+                current_best = wpminfo['top_wpm']
+                if speed > current_best:
+                    self.wpms.at[true_caller, 'top_wpm'] = speed
+                    msg += 'Set a new record! '
+                else:
+                    msg += f'Current best: {current_best} WPM. '
+
+                old_runs = wpminfo['recent_runs']
+                new_runs = old_runs + [speed]
+                if len(new_runs) > 5:
+                    new_runs = new_runs[1:]
+                new_avg = round(sum(new_runs) / len(new_runs), 1)
+                msg += f'Average of past {len(new_runs)} runs: {new_avg} WPM.'
+
+                self.wpms.at[true_caller, 'avg_wpm'] = new_avg
+                self.wpms.at[true_caller, 'recent_runs'] = new_runs
+
+            self.wpms.to_csv(WPMFILE)
+            await self.outgoing.put(f'|/w {true_caller}, {msg}')
 
         # Function calls from chat
         elif (parts[1] == 'c:' or parts[1] == 'pm') and parts[4][0] == ']':
@@ -592,6 +713,51 @@ class Bot:
         elif command[0] == 'birthday' and not pm:
             await self.send_birthday_text(automatic=False, ctx=room)
 
+        elif command[0] == 'typing_test':
+            asyncio.create_task(self.wpm(true_caller), name='wpm-{}'.format(true_caller))
+            return
+
+        elif command[0] == 'wpm_top':
+            metric = 'avg_wpm'
+            metric_title = '(Last 5 Runs Avg.)'
+            if len(command) > 1:
+                if command[1] == '-s' or command[1] == '--single':
+                    metric = 'top_wpm'
+                    metric_title = '(Single Run)'
+
+            wpmboard = self.wpms.sort_values(metric, ascending=False)
+            if metric == 'avg_wpm':
+                wpmboard = wpmboard[wpmboard['recent_runs'].map(len) >= 5]
+            wpmboard = wpmboard.reset_index().head(n=5)[['user', metric]].values.tolist()
+            msg = trivia_leaderboard_msg(wpmboard, f'Fastest WPM {metric_title}', name='wpmboard')
+
+        elif command[0] == 'wpm_reset':
+            try:
+                wpminfo = self.wpms.loc[true_caller]
+            except KeyError:
+                pass
+            else:
+                self.wpms.loc[true_caller, ['top_wpm', 'avg_wpm', 'recent_runs']] = 0, 0, []
+                self.wpms.to_csv(WPMFILE)
+            msg = f'Reset {caller}\'s typing speed record to 0 WPM.'
+
+        elif command[0] == 'wpm':
+            wpm_user = caller
+            true_wpm_user = true_caller
+            if len(command) > 1:
+                wpm_user = ' '.join(command[1:])
+                true_wpm_user = User.find_true_name(wpm_user)
+            
+            try:
+                wpminfo = self.wpms.loc[true_wpm_user]
+            except KeyError:
+                msg = f'{wpm_user} has not taken a typing test.'
+            else:
+                top_wpm = wpminfo['top_wpm']
+                avg_wpm = wpminfo['avg_wpm']
+                run_count = len(wpminfo['recent_runs'])
+                msg = f'{wpm_user} - Top speed: {top_wpm} WPM. Average of past {run_count} runs: {avg_wpm} WPM.'
+
         # animeandmanga
         elif command[0] == 'jibun' and room == ANIME_ROOM:
             msg = '/announce JIBUN WOOOOOOOOOO'
@@ -830,6 +996,9 @@ class Bot:
             await self.outgoing.put('|/cancelsearch')
 
             msg = f'Laddering is now {self.allow_laddering}.'
+
+        elif command[0] == 'test' and true_caller == OWNER:
+            msg = 'a' + u'\ufeff' + 'b'
 
 
         if msg == '':
