@@ -412,7 +412,7 @@ async def steam_user_rand_series(putter, id64, username, caller, ctx):
     while True:
         if len(games) == 0:
             await putter(f'{prefix} No games found for {username} with the given specifications.')
-            return                
+            return
 
         rand_game = random.choice(games)
 
@@ -420,6 +420,10 @@ async def steam_user_rand_series(putter, id64, username, caller, ctx):
         game_info = await steam_game_info(game_id)
 
         if not game_info:
+            games.remove(rand_game)
+            await asyncio.sleep(1)
+            continue
+        elif game_info['type'] != 'game':
             games.remove(rand_game)
             await asyncio.sleep(1)
             continue
