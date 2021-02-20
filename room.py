@@ -65,3 +65,43 @@ class Room:
             msg = trivia_leaderboard_msg(leaderboard, 'Trivia Leaderboard')
 
             await putter(self.roomname + '|' + msg)
+
+    async def quizbowl_game(self, putter, i_putter, n=10, diff=3,
+                            categories=['all'], excludecats=False, by_rating=False, autoskip=20):
+        if self.trivia.active:
+            await putter(self.roomname + '|There is already a running trivia!')
+            return
+
+        try:
+            await self.trivia.start(n, diff, categories, excludecats, by_rating, quizbowl=True)
+
+            for _ in range(n):
+                curr_question = await self.trivia.questions.questions.get()
+                self.trivia.answers = curr_question[1]
+
+                await asyncio.sleep(5)
+
+                asyncio.create_task(self.trivia.quizbowl_question(curr_question[0], autoskip, putter, i_putter))
+                self.trivia.q_active.set()
+
+                await self.trivia.correct.wait()
+                self.trivia.correct.clear()
+
+        except asyncio.CancelledError:
+            if not self.trivia.questions.series_exist:
+                await putter(self.roomname + '|There are no series for some combination(s) of these categories.')
+            for task in asyncio.all_tasks():
+                if task.get_name() == 'tquestions-{}'.format(self.roomname):
+                    task.cancel()
+                    break
+
+            print('Quizbowl stopped early.')
+        finally:
+            leaderboard = self.trivia.leaderboard()
+            
+            await self.trivia.end(putter)
+            await asyncio.sleep(1)
+
+            msg = trivia_leaderboard_msg(leaderboard, 'Quizbowl Leaderboard')
+
+            await putter(self.roomname + '|' + msg)

@@ -18,7 +18,7 @@ if __name__ == "__main__":
     for i in range(10):
         offset = i * 500
         headers = {'Client-ID': os.getenv('TWITCH_ID'),
-                'Authorization': f'Bearer {access_token}'}
+                   'Authorization': f'Bearer {access_token}'}
         data = ('fields name, summary, slug, screenshots.url; '
                 'sort follows desc; '
                 'where follows != null & screenshots != null & themes != (42); '

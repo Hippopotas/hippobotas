@@ -121,6 +121,7 @@ def trivia_arg_parser(s):
     parser.add_argument('-c', '--categories', nargs='*', default=['all'])
     parser.add_argument('-cx', '--excludecats', action='store_true')
     parser.add_argument('-d', '--diff', type=int, default=3)
+    parser.add_argument('-q', '--quizbowl', action='store_true')
     parser.add_argument('-r', '--byrating', action='store_true')
     parser.add_argument('-s', '--autoskip', type=int, default=20)
     parser.add_argument('len', type=int)
@@ -697,7 +698,7 @@ class Bot:
             msg = 'Have you heard of google?'
         elif command[0] == 'jing':
             msg = 'Have you heard of joogle?'
-        
+
         elif command[0] == 'plebs' and User.compare_ranks(caller[0], '+'):
             uhtml = gen_uhtml_img_code(PLEB_URL, height_resize=250)
             msg = f'/adduhtml hippo-pleb, {uhtml}'
@@ -729,7 +730,10 @@ class Bot:
             if metric == 'avg_wpm':
                 wpmboard = wpmboard[wpmboard['recent_runs'].map(len) >= 5]
             wpmboard = wpmboard.reset_index().head(n=5)[['user', metric]].values.tolist()
+
             msg = trivia_leaderboard_msg(wpmboard, f'Fastest WPM {metric_title}', name='wpmboard', metric='WPM')
+            if pm:
+                msg = "This command is not supported in PMs."
 
         elif command[0] == 'wpm_reset':
             try:
@@ -805,6 +809,8 @@ class Bot:
                                                              caller, args.roll, ctx),
                                         name='randmal-{}'.format(args.username))
                 else:
+                    if not (User.compare_ranks(caller[0], '+')):
+                        ctx = 'pm'
                     asyncio.create_task(show_mal_user(self.outgoing.put, mal_user, true_caller, ctx),
                                         name='showmal-{}'.format(args.username))
 
@@ -908,6 +914,18 @@ class Bot:
                 
                 if not args:
                     msg = 'Invalid parameters. Trivia not started.'
+                elif args.quizbowl or room == VG_ROOM:
+                    msg = 'Starting a round of quizbowl with {} questions. ' \
+                          'Type your answers to guess!'.format(args.len)
+                    asyncio.create_task(self.roomlist[room].quizbowl_game(self.outgoing.put,
+                                                                          self.incoming.put,
+                                                                          args.len,
+                                                                          args.diff,
+                                                                          args.categories,
+                                                                          args.excludecats,
+                                                                          args.byrating,
+                                                                          args.autoskip),
+                                        name='trivia-{}'.format(room))
                 else:
                     msg = 'Starting a round of trivia with {} questions, with a ' \
                           '{} second timer. Type your answers to guess!'.format(args.len, args.autoskip)
@@ -1042,6 +1060,8 @@ if __name__ == "__main__":
             import traceback
             traceback.print_exc()
         finally:
+            for task in asyncio.all_tasks():
+                task.cancel()
             loop.close()
 
         time.sleep(30)

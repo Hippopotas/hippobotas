@@ -383,7 +383,7 @@ async def show_steam_user(putter, username, true_caller, ctx):
                       f'{total_recent_hours:.1f} hours past 2 weeks</th></tr></thead><tbody>'
                       f'<td rowspan=6 style=\'border-right:3px solid #858585; padding:5px\'>{img_uhtml}</td></tr>'
                       f'{all_game_uhtml}</tbody></table>')
-        
+
         await putter(f'{prefix}/adduhtml {username}-steam, {steam_uhtml}')
     else:
         await putter(f'{prefix} Could not find the Steam account {username}. ')

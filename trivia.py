@@ -14,7 +14,7 @@ from urllib import request as ulreq
 from constants import ANIME_ROOM, LEAGUE_ROOM, VG_ROOM
 from constants import ANIME_GENRES, MANGA_GENRES, ANIME_TYPES, MANGA_TYPES, LEAGUE_CATS
 from constants import JIKAN_API, DDRAGON_API, DDRAGON_IMG, DDRAGON_SPL
-from constants import VG_QUESTION_LEN, TIMER_USER
+from constants import TIMER_USER
 
 BASE_DIFF = 3
 AN_DIFF_SCALE = 475
@@ -50,6 +50,7 @@ def img_dims_from_uri(uri):
 
     return dims
 
+
 def gen_uhtml_img_code(url, height_resize=300, width_resize=None):
     w, h = img_dims_from_uri(url)
     if h > height_resize:
@@ -62,6 +63,17 @@ def gen_uhtml_img_code(url, height_resize=300, width_resize=None):
             w = width_resize
 
     return '<center><img src=\'{}\' width={} height={}></center>'.format(url, w, h)
+
+
+CENSOR_WHITELIST = ['the', 'and']
+def censor_quizbowl(title, question):
+    to_replace = title.lower().split()
+    split_question = question.split()
+    for i, word in enumerate(split_question):
+        if (len(word) > 2 and word.lower() in to_replace
+                          and word not in CENSOR_WHITELIST):
+            split_question[i] = '____'
+    return ' '.join(split_question)
 
 
 class TriviaGame:
@@ -95,6 +107,29 @@ class TriviaGame:
             await putter(f'>{self.room}\n'
                          f'|c:|{curr_time}|*hippobotas|{answer}')
 
+    async def quizbowl_question(self, question, skip_time, putter, i_putter):
+        answer = self.answers[0]
+        curr_output = []
+        remaining = iter(question.split(' '))
+        done = False
+        while self.active and self.answers[0] == answer:
+            for _ in range(1):
+                try:
+                    word = next(remaining)
+                    curr_output.append(word)
+                    if word.endswith('.') or word.endswith(',') or word.endswith(';'):
+                        break
+                except StopIteration:
+                    done = True
+                    break
+            curr_str = ' '.join(curr_output)
+            await putter(f'{self.room}|/adduhtml {UHTML_NAME}, {curr_str}')
+
+            if done:
+                asyncio.create_task(self.autoskip(skip_time, i_putter))
+                return
+            await asyncio.sleep(0.3)
+
     def reset_scoreboard(self, length=60*60*24*3):
         timer = self.scoreboard[self.scoreboard['user'] == TIMER_USER]
         # Room that does not support auto-reset
@@ -107,7 +142,7 @@ class TriviaGame:
             self.scoreboard = timer
 
     async def start(self, n=10, diff=BASE_DIFF, categories=['all'],
-                    excludecats=False, by_rating=False):
+                    excludecats=False, by_rating=False, quizbowl=False):
         self.active = True
         self.reset_scoreboard()
 
@@ -120,7 +155,7 @@ class TriviaGame:
         self.questions.excludecats = excludecats
         self.questions.by_rating = by_rating
 
-        asyncio.create_task(self.questions.gen_list(n=n),
+        asyncio.create_task(self.questions.gen_list(n=n, quizbowl=quizbowl),
                             name='tquestions-{}'.format(self.room))
 
     def update_scores(self, user):
@@ -172,12 +207,14 @@ class QuestionList:
         self.questions = asyncio.Queue()
         self.series_exist = True
 
-    async def gen_list(self, n):
+    async def gen_list(self, n, quizbowl=False):
         async with aiohttp.ClientSession() as session:
             if self.room == ANIME_ROOM:
                 for _ in range(n):
-                    print(self.q_bases)
-                    await self.gen_am_question(session)
+                    if quizbowl:
+                        await self.gen_am_qbowl_question(session)
+                    else:
+                        await self.gen_am_question(session)
 
             elif self.room == LEAGUE_ROOM:
                 for _ in range(n):
@@ -338,9 +375,6 @@ class QuestionList:
                 if genre['mal_id'] == 12:
                     valid_series = False
 
-            if not valid_series:
-                continue
-
             aliases = []
             if series_data['title']:
                 aliases.append(series_data['title'])
@@ -348,7 +382,16 @@ class QuestionList:
                 aliases.append(series_data['title_english'])
             aliases += series_data['title_synonyms']
 
+            for alias in aliases:
+                if 'hentai' in alias.lower():
+                    valid_series = False
+                    break
+
+            if not valid_series:
+                continue
+
             return {'img_url': series_data['image_url'],
+                    'synopsis': series_data['synopsis'],
                     'answers': aliases,
                     'medium': medium,
                     'sub_medium': sub_medium,
@@ -366,6 +409,19 @@ class QuestionList:
         
         await self.questions.put(['/adduhtml {}, {}'.format(UHTML_NAME, img_url),
                                   base['answers']])
+
+    async def gen_am_qbowl_question(self, session):
+        base = await self.gen_am_base(session)
+        while self.duplicate_check({k:base[k] for k in ('medium', 'sub_medium', 'genre', 'rank') if k in base}) or not base['synopsis']:
+            base = await self.gen_am_base(session)
+
+        self.q_bases.append({k:base[k] for k in ('medium', 'sub_medium', 'genre', 'rank') if k in base})
+
+        question = base['synopsis']
+        for title in base['answers']:
+            question = censor_quizbowl(title, question)
+
+        await self.questions.put([question, base['answers']])
 
     async def gen_lol_base(self, session, data):
         base = {}
@@ -468,23 +524,6 @@ class QuestionList:
         self.q_bases.append(vidya['id'])
 
         question = vidya['summary'].replace('\\n', '<br>')
+        question = censor_quizbowl(vidya['name'], question)
 
-        to_replace = vidya['name'].lower().split()
-        split_question = question.split()
-        for i, word in enumerate(split_question):
-            if len(word) > 3 and word.lower() in to_replace:
-                split_question[i] = '[GAME]'
-        question = ' '.join(split_question)
-
-        if len(question) > VG_QUESTION_LEN:
-            question = question[:VG_QUESTION_LEN]
-            for i in range(1, VG_QUESTION_LEN+1):
-                if question[-1] == ' ':
-                    break
-                else:
-                    question = question[:-1]
-
-            question += '...'
-
-        await self.questions.put(['/adduhtml {}, {}'.format(UHTML_NAME, question),
-                                  [vidya['name'], vidya['slug']]])
+        await self.questions.put([question, [vidya['name'], vidya['slug']]])

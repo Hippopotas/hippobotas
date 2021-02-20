@@ -3,8 +3,6 @@ LEAGUE_ROOM = 'leagueoflegends'
 VG_ROOM = 'videogames'
 PEARY_ROOM = 'bikinibottom'
 
-VG_QUESTION_LEN = 300
-
 TIMER_USER = 'T*'
 
 JIKAN_API = 'https://api.jikan.moe/v3/'
