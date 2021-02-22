@@ -725,49 +725,27 @@ class Bot:
             summary += '...'
 
         platform_rds = {}
+        for rd in game_info['release_dates']:
+            platform = ''
+            for p in game_info['platforms']:
+                if p['id'] == rd['platform']:
+                    try:
+                        platform = p['abbreviation']
+                    except KeyError:
+                        platform = p['name']
+                    break
 
-        async with aiohttp.ClientSession(headers=headers) as session:
-            for rd in game_info['release_dates']:
-                await asyncio.sleep(0.25)        # Twitch rate limits to 4 queries / second
-                r = await session.post(IGDB_API + 'release_dates', data=f'fields *; where id={rd};')
-                resp = await r.text()
+            unix_ts = rd['date']
+            year = datetime.datetime.utcfromtimestamp(unix_ts).strftime('%Y')
 
-                if r.status != 200:
-                    print(f'Release date {rd} broken for {name}: status code {r.status}.')
-                else:
-                    resp = json.loads(resp)[0]
-                    unix_ts = resp['date']
-                    year = datetime.datetime.utcfromtimestamp(unix_ts).strftime('%Y')
-                    platform = resp['platform']
-                    
-                    await asyncio.sleep(0.25)        # Twitch rate limits to 4 queries / second
-                    r2 = await session.post(IGDB_API + 'platforms', data=f'fields *; where id={platform};')
-                    resp = await r2.text()
-                    
-                    if r2.status != 200:
-                        print(f'Platform {platform} broken for {name}: status code {r2.status}.')
-                    else:
-                        resp = json.loads(resp)[0]
-                        try:
-                            plat_name = resp['abbreviation']
-                        except KeyError:
-                            plat_name = resp['name']
-                        platform_rds[plat_name] = year
+            platform_rds[platform] = year
 
-            rd_str = ''
-            for p in platform_rds:
-                rd = platform_rds[p]
-                rd_str += f'{p} ({rd}); '
+        rd_str = ''
+        for p in platform_rds:
+            rd = platform_rds[p]
+            rd_str += f'{p} ({rd}); '
 
-            await asyncio.sleep(0.25)        # Twitch rate limits to 4 queries / second
-            r = await session.post(IGDB_API + 'covers', data=f'fields *; where id={cover};')
-            resp = await r.text()
-            
-            if r.status != 200:
-                print(f'Cover {cover} broken for {name}: status code {r.status}.')
-                cover = IMG_NOT_FOUND
-            else:
-                cover = 'https:' + json.loads(resp)[0]['url']
+        cover = 'https:' + cover['url']
 
         if rd_str:
             rd_str = rd_str[:-2]
@@ -994,8 +972,9 @@ class Bot:
 
                 headers = {'Client-ID': os.getenv('TWITCH_ID'),
                         'Authorization': f'Bearer {self.igdb_token}'}
-                data = (f'search "{search}"; fields cover, name, release_dates, '
-                         'summary, url; where themes != (42);')
+                data = (f'search "{search}"; fields cover.url, name, '
+                         'release_dates.*, platforms.*, summary, url; '
+                         'where themes != (42);')
 
                 async with aiohttp.ClientSession(headers=headers) as session:
                     r = await session.post(IGDB_API + 'games', data=data)

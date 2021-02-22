@@ -539,6 +539,7 @@ class QuestionList:
     async def gen_vg_question(self, vg_database):
         vidya = self.gen_vg_base(vg_database)
 
-        cover_url = 'https:' + vidya['cover']['url']
-        question = f'/adduhtml {UHTML_NAME}, <center><img src=\'{cover_url}\' width=90 height=90></center>'
+        screenshot_url = 'https:' + random.choice(vidya['screenshots'])['url']
+        screenshot_url = screenshot_url.replace('t_thumb', 't_original')
+        question = f'/adduhtml {UHTML_NAME}, <center><img src=\'{screenshot_url}\' width=266 height=150></center>'
         await self.questions.put([question, [vidya['name'], vidya['slug']]])

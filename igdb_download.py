@@ -19,9 +19,9 @@ if __name__ == "__main__":
         offset = i * 500
         headers = {'Client-ID': os.getenv('TWITCH_ID'),
                    'Authorization': f'Bearer {access_token}'}
-        data = ('fields name, summary, slug, cover.url; '
+        data = ('fields name, summary, slug, cover.url, screenshots.url; '
                 'sort follows desc; '
-                'where follows != null & themes != (42); '
+                'where follows != null & screenshots != null & themes != (42); '
                 f'offset {offset}; limit 500;')
         r = requests.post('https://api.igdb.com/v4/games', headers=headers, data=data)
 
