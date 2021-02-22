@@ -67,11 +67,12 @@ def gen_uhtml_img_code(url, height_resize=300, width_resize=None):
 
 CENSOR_WHITELIST = ['the', 'and']
 def censor_quizbowl(title, question):
-    to_replace = title.lower().split()
+    to_replace = list(map(lambda x: re.sub(r'[^a-zA-Z0-9]', '', x).lower(), title.split()))
     split_question = question.split()
     for i, word in enumerate(split_question):
-        if (len(word) > 2 and word.lower() in to_replace
-                          and word not in CENSOR_WHITELIST):
+        raw_word = re.sub(r'[^a-zA-Z0-9]', '', word).lower()
+        if (len(word) > 2 and raw_word in to_replace
+                          and raw_word not in CENSOR_WHITELIST):
             split_question[i] = '____'
     return ' '.join(split_question)
 
@@ -523,7 +524,7 @@ class QuestionList:
 
         self.q_bases.append(vidya['id'])
 
-        question = vidya['summary'].replace('\\n', '<br>')
+        question = vidya['summary']
         question = censor_quizbowl(vidya['name'], question)
 
         await self.questions.put([question, [vidya['name'], vidya['slug']]])

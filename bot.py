@@ -8,6 +8,7 @@ import os
 import pandas as pd
 import random
 import re
+import requests
 import shlex
 import time
 import websockets
@@ -17,7 +18,7 @@ from dotenv import load_dotenv
 from battle import Battle
 from constants import ANIME_ROOM, LEAGUE_ROOM, VG_ROOM, PEARY_ROOM
 from constants import ANIME_GENRES, MANGA_GENRES, ANIME_TYPES, MANGA_TYPES, LEAGUE_CATS
-from constants import JIKAN_API, DDRAGON_API, DDRAGON_IMG, DDRAGON_SPL
+from constants import JIKAN_API, DDRAGON_API, DDRAGON_IMG, DDRAGON_SPL, IGDB_API
 from constants import TIMER_USER, OWNER
 from constants import METRONOME_BATTLE
 from constants import MAL_CHAR_URL, MAL_IMG_URL, PLEB_URL, IMG_NOT_FOUND
@@ -206,6 +207,8 @@ def check_answer(guess, answers):
     return ''
 
 
+
+
 class Bot:
     def __init__(self):
         load_dotenv()
@@ -232,6 +235,36 @@ class Bot:
 
         self.mal_rooms = [ANIME_ROOM, PEARY_ROOM]
         self.steam_rooms = [VG_ROOM, PEARY_ROOM]
+
+        self.get_igdb_token()
+
+
+    def get_igdb_token(self):
+        '''
+        Gets IGDB access token.
+
+        Args:
+        '''
+        payload = {'client_id': os.getenv('TWITCH_ID'),
+                   'client_secret': os.getenv('TWITCH_SECRET'),
+                   'grant_type': 'client_credentials'}
+
+        r = requests.post('https://id.twitch.tv/oauth2/token', data=payload)
+
+        igdb_info = json.loads(r.text)
+        self.igdb_token = igdb_info['access_token']
+        self.igdb_token_expire = time.time() + int(igdb_info['expires_in'])
+
+
+    def check_igdb_token(self):
+        '''
+        Checks if IGDB access token has expired, and
+        generates a new one if it has.
+
+        Args:
+        '''
+        if time.time() > self.igdb_token_expire:
+            self.get_igdb_token()
 
 
     async def start_repeats(self):
@@ -661,6 +694,98 @@ class Bot:
         await self.outgoing.put(f'{ctx}|/adduhtml hippo-birthdays, {uhtml}')
 
 
+    async def gen_game_uhtml(self, game_info, headers, true_caller, ctx):
+        '''
+        Generates the uhtml to display for a given game's info.
+
+        Args:
+            game_info (dict): IGDB returned json of game information.
+            headers (dict): header info for IGDB session.
+            true_caller (str): user who invoked the command.
+            ctx (str): context to send the message to.
+
+        Returns:
+        '''
+        cover = game_info['cover']
+        name = game_info['name']
+        summary = game_info['summary']
+        url = game_info['url']
+
+        if ctx == 'pm':
+            await self.outgoing.put(f'|/w {true_caller},{url}')
+            return
+
+        if len(summary) > 400:
+            split_summary = summary.split()
+            summary = ''
+            for word in split_summary:
+                summary += ' ' + word
+                if len(summary) >= 400:
+                    break
+            summary += '...'
+
+        platform_rds = {}
+
+        async with aiohttp.ClientSession(headers=headers) as session:
+            for rd in game_info['release_dates']:
+                await asyncio.sleep(0.25)        # Twitch rate limits to 4 queries / second
+                r = await session.post(IGDB_API + 'release_dates', data=f'fields *; where id={rd};')
+                resp = await r.text()
+
+                if r.status != 200:
+                    print(f'Release date {rd} broken for {name}: status code {r.status}.')
+                else:
+                    resp = json.loads(resp)[0]
+                    unix_ts = resp['date']
+                    year = datetime.datetime.utcfromtimestamp(unix_ts).strftime('%Y')
+                    platform = resp['platform']
+                    
+                    await asyncio.sleep(0.25)        # Twitch rate limits to 4 queries / second
+                    r2 = await session.post(IGDB_API + 'platforms', data=f'fields *; where id={platform};')
+                    resp = await r2.text()
+                    
+                    if r2.status != 200:
+                        print(f'Platform {platform} broken for {name}: status code {r2.status}.')
+                    else:
+                        resp = json.loads(resp)[0]
+                        try:
+                            plat_name = resp['abbreviation']
+                        except KeyError:
+                            plat_name = resp['name']
+                        platform_rds[plat_name] = year
+
+            rd_str = ''
+            for p in platform_rds:
+                rd = platform_rds[p]
+                rd_str += f'{p} ({rd}); '
+
+            await asyncio.sleep(0.25)        # Twitch rate limits to 4 queries / second
+            r = await session.post(IGDB_API + 'covers', data=f'fields *; where id={cover};')
+            resp = await r.text()
+            
+            if r.status != 200:
+                print(f'Cover {cover} broken for {name}: status code {r.status}.')
+                cover = IMG_NOT_FOUND
+            else:
+                cover = 'https:' + json.loads(resp)[0]['url']
+
+        if rd_str:
+            rd_str = rd_str[:-2]
+
+        uhtml = (f'/adduhtml {name}-gameinfo, <table style=\'border:3px solid #858585; '
+                'border-spacing:0px; border-radius:10px; background-image:'
+                'url(\'https://i.imgur.com/c68ilQW.png\'); background-size:cover\'><thead><tr>'
+                '<th width=96 style=\'font-size:14px; padding:5px\'>'
+                f'<a href=\'{url}\' style=\'color:#FFF\'>{name}</a></th>'
+                '<th align=left style=\'font-weight:normal; color:#858585; padding-top:5px\'>'
+                f'{rd_str}</th></tr></thead><tbody><tr><td style=\'padding:5px\'>'
+                f'<center><img src=\'{cover}\' width=80 height=80></center>'
+                 '</td><td style=\'vertical-align:top; width:400px\'>'
+                f'{summary}</td></tr></tbody></table>')
+
+        await self.outgoing.put(f'{ctx}|{uhtml}')
+
+
     async def command_center(self, room, caller, command, pm=False):
         '''
         Handles command messages targeted at the bot.
@@ -856,6 +981,36 @@ class Bot:
                 else:
                     asyncio.create_task(show_steam_user(self.outgoing.put, steam_user, true_caller, ctx),
                                         name='showsteam-{}'.format(args.username))
+
+        # Game search
+        elif (command[0] == 'vg' and ((room in self.steam_rooms and User.compare_ranks(caller[0], '+'))
+                                                                or pm)):
+            ctx = 'pm' if pm else room
+            if len(command) < 2:
+                msg = 'Please specify a game to search for.'
+            else:
+                search = ' '.join(command[1:])
+                self.check_igdb_token()
+
+                headers = {'Client-ID': os.getenv('TWITCH_ID'),
+                        'Authorization': f'Bearer {self.igdb_token}'}
+                data = (f'search "{search}"; fields cover, name, release_dates, '
+                         'summary, url; where themes != (42);')
+
+                async with aiohttp.ClientSession(headers=headers) as session:
+                    r = await session.post(IGDB_API + 'games', data=data)
+
+                    resp = await r.text()
+                    if r.status != 200:
+                        print(f'IGDB query failed on {data}: code {r.status}')
+                        msg = 'Game not found.'
+                    else:
+                        game_list = json.loads(resp)
+                        if not game_list:
+                            msg = 'Game not found.'
+                        else:
+                            game_info = game_list[0]
+                            asyncio.create_task(self.gen_game_uhtml(game_info, headers, true_caller, ctx))
 
         # Suck
         elif command[0] == 'suck':

@@ -10,6 +10,7 @@ DDRAGON_API = 'http://ddragon.leagueoflegends.com/cdn/11.2.1/data/en_US/'
 DDRAGON_IMG = 'http://ddragon.leagueoflegends.com/cdn/11.2.1/img/'
 DDRAGON_SPL = 'http://ddragon.leagueoflegends.com/cdn/img/champion/loading/'
 STEAM_API = 'http://api.steampowered.com/'
+IGDB_API = 'https://api.igdb.com/v4/'
 
 MAL_CHAR_URL = 'https://myanimelist.net/character/'
 MAL_IMG_URL = 'https://cdn.myanimelist.net/images/characters/'
