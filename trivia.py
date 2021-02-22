@@ -226,7 +226,10 @@ class QuestionList:
                 with open('data/vg_trivia.json') as f:
                     vg_database = json.load(f)
                 for _ in range(n):
-                    await self.gen_vg_question(vg_database)
+                    if quizbowl:
+                        await self.gen_vg_qbowl_question(vg_database)
+                    else:
+                        await self.gen_vg_question(vg_database)
 
     def duplicate_check(self, d):
         for base in self.q_bases:
@@ -509,7 +512,7 @@ class QuestionList:
                 await self.questions.put(['/adduhtml {}, {}'.format(UHTML_NAME, img_url),
                                           [ability['name']]])
 
-    async def gen_vg_question(self, vg_database):
+    def gen_vg_base(self, vg_database):
         rank = -1
         while rank < 0 or rank >= len(vg_database):
             rank = int(random.gauss(VG_DIFF_SCALE * (self.diff - 2),
@@ -523,8 +526,19 @@ class QuestionList:
             vidya = vg_database[rank]
 
         self.q_bases.append(vidya['id'])
+        return vidya
+
+    async def gen_vg_qbowl_question(self, vg_database):
+        vidya = self.gen_vg_base(vg_database)
 
         question = vidya['summary']
         question = censor_quizbowl(vidya['name'], question)
 
+        await self.questions.put([question, [vidya['name'], vidya['slug']]])
+
+    async def gen_vg_question(self, vg_database):
+        vidya = self.gen_vg_base(vg_database)
+
+        cover_url = 'https:' + vidya['cover']['url']
+        question = f'/adduhtml {UHTML_NAME}, <center><img src=\'{cover_url}\' width=90 height=90></center>'
         await self.questions.put([question, [vidya['name'], vidya['slug']]])

@@ -15,13 +15,13 @@ if __name__ == "__main__":
     access_token = json.loads(r.text)['access_token']
 
     big_data = []
-    for i in range(10):
+    for i in range(12):
         offset = i * 500
         headers = {'Client-ID': os.getenv('TWITCH_ID'),
                    'Authorization': f'Bearer {access_token}'}
-        data = ('fields name, summary, slug, screenshots.url; '
+        data = ('fields name, summary, slug, cover.url; '
                 'sort follows desc; '
-                'where follows != null & screenshots != null & themes != (42); '
+                'where follows != null & themes != (42); '
                 f'offset {offset}; limit 500;')
         r = requests.post('https://api.igdb.com/v4/games', headers=headers, data=data)
 
@@ -33,4 +33,4 @@ if __name__ == "__main__":
         time.sleep(0.5)
 
     with open('data/vg_trivia.json', 'w', encoding='utf-8') as f:
-        json.dump(big_data, f)
+        json.dump(big_data, f, indent=4)

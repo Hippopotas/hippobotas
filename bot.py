@@ -1069,7 +1069,7 @@ class Bot:
                 
                 if not args:
                     msg = 'Invalid parameters. Trivia not started.'
-                elif args.quizbowl or room == VG_ROOM:
+                elif args.quizbowl:
                     msg = 'Starting a round of quizbowl with {} questions. ' \
                           'Type your answers to guess!'.format(args.len)
                     asyncio.create_task(self.roomlist[room].quizbowl_game(self.outgoing.put,
