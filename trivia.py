@@ -10,11 +10,13 @@ import time
 
 from PIL import ImageFile
 from urllib import request as ulreq
+from urllib.error import HTTPError
 
 from constants import ANIME_ROOM, LEAGUE_ROOM, VG_ROOM
 from constants import ANIME_GENRES, MANGA_GENRES, ANIME_TYPES, MANGA_TYPES, LEAGUE_CATS
 from constants import JIKAN_API, DDRAGON_API, DDRAGON_IMG, DDRAGON_SPL
 from constants import TIMER_USER
+from constants import IMG_NOT_FOUND
 
 BASE_DIFF = 3
 AN_DIFF_SCALE = 475
@@ -29,30 +31,36 @@ def img_dims_from_uri(uri):
     dims = (0, 0)
     data = None
     retry = 0
-    with ulreq.urlopen(uri) as f:
-        while retry < 1000:
-            p = ImageFile.Parser()
+    try:
+        with ulreq.urlopen(uri) as f:
+            while retry < 1000:
+                p = ImageFile.Parser()
 
-            if not data:
-                data = f.read(1024)
-            else:
-                data += f.read(1024)
+                if not data:
+                    data = f.read(1024)
+                else:
+                    data += f.read(1024)
 
-            p.feed(data)
+                p.feed(data)
 
-            try:
-                dims = p.image.size
-            except AttributeError:
-                retry += 1
-                continue
-            else:
-                break
+                try:
+                    dims = p.image.size
+                except AttributeError:
+                    retry += 1
+                    continue
+                else:
+                    break
+    except HTTPError as e:
+        print(e)
 
     return dims
 
 
 def gen_uhtml_img_code(url, height_resize=300, width_resize=None):
     w, h = img_dims_from_uri(url)
+    if not w or not h:
+        w, h = img_dims_from_uri(IMG_NOT_FOUND)
+
     if h > height_resize:
         w = w * height_resize // h
         h = height_resize

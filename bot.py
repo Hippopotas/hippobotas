@@ -616,11 +616,11 @@ class Bot:
             caller (str): User who invoked the emote
             emote (str): The emote being invoked
         '''
-        emote = emote[1:-1]         # Strip out colons
+        emote = emote[1:-1].lower()         # Strip out colons
 
         if room in self.room_emotes and User.compare_ranks(caller[0], '+'):
-            if emote.lower() in self.room_emotes[room]:
-                uhtml = gen_uhtml_img_code(self.room_emotes[room][emote], height_resize=80)
+            if emote in self.room_emotes[room]:
+                uhtml = gen_uhtml_img_code(self.room_emotes[room][emote], height_resize=50)
                 await self.outgoing.put(f'{room}|/adduhtml hippo-{emote}, {uhtml}')
         return
 
