@@ -34,6 +34,7 @@ SENTENCEFILE = 'sentences.txt'
 WPMFILE = 'wpm.txt'
 BIRTHDAYFILE = 'birthdays.json'
 CALENDARFILE = 'calendar.json'
+EMOTEFILE = 'emotes.json'
 
 
 def is_int_str(s):
@@ -222,6 +223,8 @@ class Bot:
         self.outgoing = asyncio.Queue()
 
         self.roomlist = {}
+
+        self.room_emotes = json.load(open(EMOTEFILE))
 
         self.battles = {}
         self.allow_laddering = False
@@ -477,6 +480,11 @@ class Bot:
             self.wpms.to_csv(WPMFILE)
             await self.outgoing.put(f'|/w {true_caller}, {msg}')
 
+        # Emote calls from chat
+        elif parts[1] == 'c:' and parts[4][0] == ':' and parts[4][-1] == ':':
+            caller = parts[3]
+            await self.emote_center(curr_room, caller, parts[4])
+
         # Function calls from chat
         elif (parts[1] == 'c:' or parts[1] == 'pm') and parts[4][0] == ']':
             is_pm = False
@@ -597,6 +605,24 @@ class Bot:
         action = Battle.act(battle_format, one_poke=one_poke)
 
         await self.outgoing.put(f'{battle_id}|{action}')
+
+
+    async def emote_center(self, room, caller, emote):
+        '''
+        Sends an emote if applicable.
+
+        Args:
+            room (str): Context in which the emote was invoked
+            caller (str): User who invoked the emote
+            emote (str): The emote being invoked
+        '''
+        emote = emote[1:-1]         # Strip out colons
+
+        if room in self.room_emotes and User.compare_ranks(caller[0], '+'):
+            if emote.lower() in self.room_emotes[room]:
+                uhtml = gen_uhtml_img_code(self.room_emotes[room][emote], height_resize=80)
+                await self.outgoing.put(f'{room}|/adduhtml hippo-{emote}, {uhtml}')
+        return
 
 
     async def login(self, keyword):
@@ -817,6 +843,61 @@ class Bot:
         elif command[0] == 'birthday' and not pm:
             await self.send_birthday_text(automatic=False, ctx=room)
 
+        # Emotes
+        elif command[0] == 'set_emote' and User.compare_ranks(caller[0], '#'):
+            # Args: set_emote emote, url
+            if len(command) != 3:
+                await self.outgoing.put(f'{room}|Invalid syntax. Use ]set_emote emote, url')
+                return
+            emote = command[1].lower()
+            if emote.endswith(','):
+                emote = emote[:-1]
+            if User.find_true_name(emote) != emote:
+                await self.outgoing.put(f'{room}|Invalid syntax. Use ]set_emote emote, url')
+                return
+
+            if room not in self.room_emotes:
+                self.room_emotes[room] = {}
+
+            emote_url = command[2]
+            if 'discordapp' in emote_url:
+                await self.outgoing.put(f'{room}|Please no discord URLs.')
+                return
+
+            self.room_emotes[room][emote] = emote_url
+
+            with open('emotes.json', 'w') as f:
+                json.dump(self.room_emotes, f, indent=4)
+
+            msg = f'Set :{emote}: to show {emote_url}.'
+        
+        elif command[0] == 'del_emote' and User.compare_ranks(caller[0], '#'):
+            # Args: del_emote emote
+            if len(command) != 2:
+                await self.outgoing.put(f'{room}|Invalid syntax. Use ]del_emote emote')
+                return
+
+            emote = command[1].lower()
+
+            msg = f'Did not find {emote} emote.'
+            if room in self.room_emotes:
+                if emote in self.room_emotes[room]:
+                    del self.room_emotes[room][emote]
+
+                    with open('emotes.json', 'w') as f:
+                        json.dump(self.room_emotes, f, indent=4)
+
+                    msg = f'Removed {emote} from room emotes.'
+
+        elif command[0] == 'list_emotes':
+            msg = 'No emotes found.'
+            if len(command) > 1:
+                room = ''.join(command[1:])
+            if room in self.room_emotes:
+                if len(self.room_emotes[room]) >= 1:
+                    msg = f'{room} emotes: ' + ', '.join(self.room_emotes[room])
+
+        # Typing test
         elif command[0] == 'typing_test':
             asyncio.create_task(self.wpm(true_caller), name='wpm-{}'.format(true_caller))
             return
