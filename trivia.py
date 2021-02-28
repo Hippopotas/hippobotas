@@ -15,7 +15,7 @@ from urllib.error import HTTPError
 from constants import ANIME_ROOM, LEAGUE_ROOM, VG_ROOM
 from constants import ANIME_GENRES, MANGA_GENRES, ANIME_TYPES, MANGA_TYPES, LEAGUE_CATS
 from constants import JIKAN_API, DDRAGON_API, DDRAGON_IMG, DDRAGON_SPL
-from constants import TIMER_USER
+from constants import TIMER_USER, BANLISTFILE
 from constants import IMG_NOT_FOUND
 
 BASE_DIFF = 3
@@ -381,6 +381,10 @@ class QuestionList:
             await asyncio.sleep(2)    # Jikan rate limits to 30 queries/min
             
             valid_series = True
+
+            bl = json.load(open(BANLISTFILE))
+            if series['mal_id'] in bl[medium]:
+                valid_series = False
 
             # No H/NSFW.
             for genre in series_data['genres']:

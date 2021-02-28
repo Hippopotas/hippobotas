@@ -19,7 +19,7 @@ from battle import Battle
 from constants import ANIME_ROOM, LEAGUE_ROOM, VG_ROOM, PEARY_ROOM
 from constants import ANIME_GENRES, MANGA_GENRES, ANIME_TYPES, MANGA_TYPES, LEAGUE_CATS
 from constants import JIKAN_API, DDRAGON_API, DDRAGON_IMG, DDRAGON_SPL, IGDB_API
-from constants import TIMER_USER, OWNER
+from constants import TIMER_USER, OWNER, BANLISTFILE
 from constants import METRONOME_BATTLE
 from constants import MAL_CHAR_URL, MAL_IMG_URL, PLEB_URL, IMG_NOT_FOUND
 from user import User, set_mal_user, show_mal_user, mal_user_rand_series, set_steam_user, show_steam_user, steam_user_rand_series
@@ -208,8 +208,6 @@ def check_answer(guess, answers):
     return ''
 
 
-
-
 class Bot:
     def __init__(self):
         load_dotenv()
@@ -223,6 +221,7 @@ class Bot:
         self.outgoing = asyncio.Queue()
 
         self.roomlist = {}
+        self.banlists = json.load(open(BANLISTFILE))
 
         self.room_emotes = json.load(open(EMOTEFILE))
 
@@ -364,7 +363,7 @@ class Bot:
         '''
         while True:
             msg = await self.incoming.get()
-            
+
             print('Message: ')
             print(msg.encode('utf-8'))
 
@@ -843,8 +842,71 @@ class Bot:
         elif command[0] == 'birthday' and not pm:
             await self.send_birthday_text(automatic=False, ctx=room)
 
+        # Banlists
+        elif command[0] == 'bl_add' and User.compare_ranks(caller[0], '%'):
+            if len(command) != 3:
+                await self.outgoing.put(f'{room}|Invalid syntax. Use ]bl_add category, item_to_ban')
+                return
+            list_name = User.find_true_name(command[1])
+            if (list_name == 'anime' or list_name == 'manga') and room in self.mal_rooms:
+                try:
+                    to_bl = int(command[2])
+                except ValueError:
+                    await self.outgoing.put(f'{room}|Please enter the MAL id number of the series to banlist.')
+                    return
+
+                if to_bl in self.banlists[list_name]:
+                    await self.outgoing.put(f'{room}|Series already on banlist.')
+                    return
+
+                async with aiohttp.ClientSession() as session:
+                    async with session.get(f'{JIKAN_API}{list_name}/{to_bl}') as r:
+                        resp = await r.text()
+
+                        if r.status != 200:
+                            await self.outgoing.put(f'{room}|Invalid MAL series.')
+                            return
+                        
+                        self.banlists[list_name].append(to_bl)
+                        with open(BANLISTFILE, 'w') as f:
+                            json.dump(self.banlists, f, indent=4)
+
+        elif command[0] == 'bl_remove' and User.compare_ranks(caller[0], '%'):
+            if len(command) != 3:
+                await self.outgoing.put(f'{room}|Invalid syntax. Use ]bl_remove category, item_to_unbl')
+                return
+
+            list_name = User.find_true_name(command[1])
+            if (list_name == 'anime' or list_name == 'manga') and room in self.mal_rooms:
+                try:
+                    to_bl = int(command[2])
+                except ValueError:
+                    await self.outgoing.put(f'{room}|Please enter the MAL id number of the series to banlist.')
+                    return
+
+                if to_bl in self.banlists[list_name]:
+                    self.banlists[list_name].remove(to_bl)
+                    with open(BANLISTFILE, 'w') as f:
+                        json.dump(self.banlists, f, indent=4)
+                    msg = 'Removed series from banlist.'
+                else:
+                    msg = 'Series not on banlist.'
+
+        elif command[0] == 'bl_list' and User.compare_ranks(caller[0], '%'):
+            if len(command) != 2:
+                await self.outgoing.put(f'{room}|Invalid syntax. Use ]bl_list category')
+                return
+            if not pm:
+                pm = True
+                room = ''
+
+            list_name = User.find_true_name(command[1])
+            msg = 'Category not found.'
+            if list_name in self.banlists:
+                msg = f'{list_name} banlist: {json.dumps(self.banlists[list_name])}'
+
         # Emotes
-        elif command[0] == 'set_emote' and User.compare_ranks(caller[0], '#'):
+        elif (command[0] == 'set_emote' or command[0] == 'add_emote') and User.compare_ranks(caller[0], '#'):
             # Args: set_emote emote, url
             if len(command) != 3:
                 await self.outgoing.put(f'{room}|Invalid syntax. Use ]set_emote emote, url')
@@ -870,7 +932,7 @@ class Bot:
                 json.dump(self.room_emotes, f, indent=4)
 
             msg = f'Set :{emote}: to show {emote_url}.'
-        
+
         elif command[0] == 'del_emote' and User.compare_ranks(caller[0], '#'):
             # Args: del_emote emote
             if len(command) != 2:
@@ -1254,7 +1316,7 @@ class Bot:
             print('Sending: ')
             print(msg)
             await WS.send(msg)
-            await asyncio.sleep(0.1)
+            await asyncio.sleep(0.08)
 
     
 if __name__ == "__main__":

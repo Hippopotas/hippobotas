@@ -8,11 +8,15 @@ import re
 
 from constants import ANIME_ROOM
 from constants import JIKAN_API, IMG_NOT_FOUND, STEAM_API
-from constants import ANIME_TYPES, MANGA_TYPES
+from constants import ANIME_TYPES, MANGA_TYPES, BANLISTFILE
 from trivia import gen_uhtml_img_code
 
 
 async def check_mal_nsfw(medium, series):
+    bl = json.load(open(BANLISTFILE))
+    if series in bl[medium]:
+        return True
+
     async with aiohttp.ClientSession(trust_env=True) as session:
         retry = 0
         while retry < 3:
@@ -24,11 +28,11 @@ async def check_mal_nsfw(medium, series):
                     retry += 1
                     await asyncio.sleep(2)
                     continue
-                    
+
                 for genre in series_data['genres']:
                     if genre['mal_id'] == 12:
                         return True
-                
+
                 return False
 
 

@@ -12,6 +12,8 @@ DDRAGON_SPL = 'http://ddragon.leagueoflegends.com/cdn/img/champion/loading/'
 STEAM_API = 'http://api.steampowered.com/'
 IGDB_API = 'https://api.igdb.com/v4/'
 
+BANLISTFILE = 'banlist.json'
+
 MAL_CHAR_URL = 'https://myanimelist.net/character/'
 MAL_IMG_URL = 'https://cdn.myanimelist.net/images/characters/'
 
@@ -69,3 +71,49 @@ MANGA_GENRES = {**MAL_GENRES, 'seinen': 41, 'josei': 42, 'genderbender': 44, 'th
 
 ANIME_TYPES = ['anime', 'tv', 'ova', 'movie', 'special', 'ona', 'music']
 MANGA_TYPES = ['manga', 'novel', 'oneshot', 'manhwa', 'manhua']
+
+VG_GENRES = ['fighting',
+             'shooter',
+             'music',
+             'platform',
+             'puzzle',
+             'racing',
+             'real-time-strategy-rts',
+             'role-playing-rpg',
+             'simulator',
+             'sport',
+             'strategy',
+             'turn-based-strategy-tbs',
+             'tactical',
+             'quiz-trivia',
+             'hack-and-slash-beat-em-up',
+             'pinball',
+             'adventure',
+             'arcade',
+             'visual-novel',
+             'indie',
+             'card-and-board-game',
+             'moba',
+             'point-and-click']
+
+VG_THEMES = ['thriller',
+             'science-fiction',
+             'action',
+             'horror',
+             'survival',
+             'fantasy',
+             'historical',
+             'stealth',
+             'comedy',
+             'business',
+             'drama',
+             'non-fiction',
+             'kids',
+             'sandbox',
+             'open-world',
+             'warfare',
+             '4x-explore-expand-exploit-and-exterminate',
+             'educational',
+             'mystery',
+             'party',
+             'romance']
