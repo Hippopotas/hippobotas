@@ -14,8 +14,8 @@ IGDB_API = 'https://api.igdb.com/v4/'
 
 BANLISTFILE = 'banlist.json'
 
-MAL_CHAR_URL = 'https://myanimelist.net/character/'
-MAL_IMG_URL = 'https://cdn.myanimelist.net/images/characters/'
+MAL_URL = 'https://myanimelist.net/'
+MAL_IMG_URL = 'https://cdn.myanimelist.net/images/'
 
 IMG_NOT_FOUND = 'https://i.imgur.com/Mlw966x.png'
 PLEB_URL = 'https://i.imgur.com/c9nyFqJ.png'

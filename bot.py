@@ -21,7 +21,7 @@ from constants import ANIME_GENRES, MANGA_GENRES, ANIME_TYPES, MANGA_TYPES, LEAG
 from constants import JIKAN_API, DDRAGON_API, DDRAGON_IMG, DDRAGON_SPL, IGDB_API
 from constants import TIMER_USER, OWNER, BANLISTFILE
 from constants import METRONOME_BATTLE
-from constants import MAL_CHAR_URL, MAL_IMG_URL, PLEB_URL, IMG_NOT_FOUND
+from constants import MAL_URL, MAL_IMG_URL, PLEB_URL, IMG_NOT_FOUND
 from user import User, set_mal_user, show_mal_user, mal_user_rand_series, set_steam_user, show_steam_user, steam_user_rand_series
 from room import Room, trivia_leaderboard_msg
 from trivia import gen_uhtml_img_code
@@ -667,28 +667,24 @@ class Bot:
                 await self.outgoing.put('|/join ' + room)
 
 
-    async def send_birthday_text(self, automatic, ctx=ANIME_ROOM):
-        self.birthdays = json.load(open(BIRTHDAYFILE))
-        today = datetime.datetime.today().strftime('%B %d').replace(' 0', ' ')
-        short_today = datetime.datetime.today().strftime('%b %d').replace(' 0', ' ')
-        birthday_chars = self.birthdays[today]
+    def birthday_chars_to_uhtml(self, characters):
+        '''
+        Generates table-rows-html, given a list of characters and their info.
 
-        if not birthday_chars:
-            if not automatic:
-                await self.outgoing.put(f'{ctx}|No known birthdays today! Submit birthdays here: https://forms.gle/qfKSeyNtpueTBACn7')
-            return
-
+        Args:
+            characters (list): list of character infos.
+        '''
         char_uhtml = '<tr>'
-        for i, char in enumerate(birthday_chars):
+        for i, char in enumerate(characters):
             img_uhtml = ''
             char_url = ''
-            if len(char) == 3:
+            if len(char) == 4:
                 # MAL char formatting is [name, img suffix, MAL page suffix]
                 img_uhtml = gen_uhtml_img_code(IMG_NOT_FOUND, height_resize=64, width_resize=64)
                 if char[1]:
                     img_uhtml = gen_uhtml_img_code(f'{MAL_IMG_URL}{char[1]}', height_resize=64, width_resize=64)
 
-                char_url = MAL_CHAR_URL + char[2]
+                char_url = f'{MAL_URL}{char[3]}/{char[2]}'
 
             elif len(char) == 2:
                 # A/M staff formatting is [name, img link]
@@ -705,12 +701,44 @@ class Bot:
 
         char_uhtml += '</tr>'
 
+        return char_uhtml
+
+
+    async def send_birthday_text(self, automatic, ctx=ANIME_ROOM):
+        '''
+        Sends a uhtml-formatted table of the current date's birthdays.
+
+        Args:
+            automatic (bool): Whether or not this was automatically scheduled.
+            ctx (str): the context to send to.
+        '''
+        self.birthdays = json.load(open(BIRTHDAYFILE))
+        today = datetime.datetime.today().strftime('%B %d').replace(' 0', ' ')
+        short_today = datetime.datetime.today().strftime('%b %d').replace(' 0', ' ')
+        birthday_chars = self.birthdays[today]
+
+        if not birthday_chars:
+            if not automatic:
+                await self.outgoing.put(f'{ctx}|No known birthdays today! Submit birthdays here: https://forms.gle/qfKSeyNtpueTBACn7')
+            return
+
+        char_uhtml = self.birthday_chars_to_uhtml(birthday_chars)
+
+        tomorrow_uhtml = ''
+        curr_year = datetime.datetime.today().year
+        print(today)
+        print(curr_year)
+        if today == 'February 28' and (curr_year % 4 != 0 or curr_year % 100 == 0):
+            tomorrow_uhtml = '<tr><td colspan=6><b>(Feb 29)</b></td></tr>'
+            tomorrow_uhtml += self.birthday_chars_to_uhtml(self.birthdays['February 29'])
+
         uhtml = ('<center><table style=\'border:3px solid #0088cc; border-spacing:0px; '
                  'border-radius:10px; background-image:url(https://i.imgur.com/l8iJKoX.png); '
                  'background-size:cover\'>'
                  '<thead><tr><th colspan=6 style=\'padding:5px 5px 10px 5px\'>'
                 f'Today\'s Birthdays ({short_today})</th></tr></thead><tbody>'
                 f'{char_uhtml}'
+                f'{tomorrow_uhtml}'
                  '<tr><td colspan=6 style=\'text-align:right; font-size:8px; '
                  'padding: 0px 5px 5px 0px\'><a href=\'https://forms.gle/qfKSeyNtpueTBACn7\' '
                  'style=\'color:inherit\'>Submit characters here</a></td></tr>'
