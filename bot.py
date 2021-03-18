@@ -347,12 +347,15 @@ class Bot:
         Args:
             uri (str): websocket to connect to
         '''
-        async with websockets.connect(uri) as ws:
-            # The same websocket is used to send info back.
-            global WS
-            WS = ws
-            async for msg in ws:
-                await self.incoming.put(msg)
+        try:
+            async with websockets.connect(uri) as ws:
+                # The same websocket is used to send info back.
+                global WS
+                WS = ws
+                async for msg in ws:
+                    await self.incoming.put(msg)
+        except:
+            start_bot(restart=True)
 
 
     async def interpreter(self):
@@ -729,7 +732,7 @@ class Bot:
         print(today)
         print(curr_year)
         if today == 'February 28' and (curr_year % 4 != 0 or curr_year % 100 == 0):
-            tomorrow_uhtml = '<tr><td colspan=6><b>(Feb 29)</b></td></tr>'
+            tomorrow_uhtml = '<tr><td colspan=6><b><center>(Feb 29)</center></b></td></tr>'
             tomorrow_uhtml += self.birthday_chars_to_uhtml(self.birthdays['February 29'])
 
         uhtml = ('<center><table style=\'border:3px solid #0088cc; border-spacing:0px; '
@@ -1338,38 +1341,36 @@ class Bot:
 
         Args:
         '''
-        while True:
-            msg = await self.outgoing.get()
-
-            print('Sending: ')
-            print(msg)
-            await WS.send(msg)
-            await asyncio.sleep(0.08)
-
-    
-if __name__ == "__main__":
-
-    loop = asyncio.get_event_loop()
-
-    while True:
-        loop.set_debug(True)
-        bot = Bot()
-
         try:
-            asyncio.set_event_loop(loop)
-            loop.run_until_complete(asyncio.wait((bot.listener(PS_SOCKET), bot.interpreter(), bot.sender(), bot.start_repeats())))
-        except:
-            # Useful for debugging, since I can't figure out how else
-            # to make async stuff return the actual error.
-            print('Loop broke!')
-            import traceback
-            traceback.print_exc()
-        finally:
-            for task in asyncio.all_tasks():
-                task.cancel()
-            loop.close()
+            while True:
+                msg = await self.outgoing.get()
 
+                print('Sending: ')
+                print(msg)
+                await WS.send(msg)
+                await asyncio.sleep(0.08)
+        except:
+            start_bot(restart=True)
+
+
+def start_bot(restart=True):
+    loop = asyncio.get_event_loop()
+    if restart:
+        print('Restarting. Waiting 30 seconds...')
+        for task in asyncio.all_tasks():
+            task.cancel()
         time.sleep(30)
 
-        loop = asyncio.new_event_loop()
-        
+    loop.set_debug(True)
+    bot = Bot()
+
+    asyncio.set_event_loop(loop)
+    loop.create_task(bot.listener(PS_SOCKET))
+    loop.create_task(bot.interpreter())
+    loop.create_task(bot.sender())
+    loop.create_task(bot.start_repeats())
+    loop.run_forever()
+
+
+if __name__ == "__main__":
+    start_bot(restart=False)
