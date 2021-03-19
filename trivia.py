@@ -13,8 +13,8 @@ import common.constants as const
 from common.utils import gen_uhtml_img_code
 
 BASE_DIFF = 3
-AN_DIFF_SCALE = 475
-MA_DIFF_SCALE = 275
+AN_DIFF_SCALE = 400
+MA_DIFF_SCALE = 225
 VG_DIFF_SCALE = 300
 UHTML_NAME = 'trivia'
 PIC_SIZE = 225
@@ -177,9 +177,7 @@ class QuestionList:
                     await self.gen_lol_question(session)
             
             elif self.room == const.VG_ROOM:
-                vg_database = None
-                with open('data/vg_trivia.json') as f:
-                    vg_database = json.load(f)
+                vg_database = json.load(open('data/vg_trivia.json'))
                 for _ in range(n):
                     if quizbowl:
                         await self.gen_vg_qbowl_question(vg_database)
@@ -329,6 +327,7 @@ class QuestionList:
             
             valid_series = True
 
+            # Cannot be on banlist.
             bl = json.load(open(const.BANLISTFILE))
             if series['mal_id'] in bl[medium]:
                 valid_series = False
@@ -338,6 +337,25 @@ class QuestionList:
                 if genre['mal_id'] == 12:
                     valid_series = False
 
+            # Needs at least 1 picture.
+            pics = []
+            async with session.get(const.JIKAN_API + '{}/{}/pictures'.format(medium, series['mal_id'])) as r:
+                resp = await r.text()
+                pics_data = json.loads(resp)
+
+                if r.status == 403:
+                    print('Got rate limited by Jikan on {}.'.format())
+                    await asyncio.sleep(10)
+                    continue
+                    
+                for p in pics_data['pictures']:
+                    pics.append(p['small'])
+                if not pics:
+                    valid_series = False
+
+            await asyncio.sleep(2)    # Jikan rate limits to 30 queries/min
+
+            # Cannot have banwords in the name.
             aliases = []
             if series_data['title']:
                 aliases.append(series_data['title'])
@@ -353,7 +371,8 @@ class QuestionList:
             if not valid_series:
                 continue
 
-            return {'img_url': series_data['image_url'],
+            img_url = random.choice(pics)
+            return {'img_url': img_url,
                     'synopsis': series_data['synopsis'],
                     'answers': aliases,
                     'medium': medium,
