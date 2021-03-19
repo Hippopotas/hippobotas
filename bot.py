@@ -15,26 +15,18 @@ import websockets
 
 from dotenv import load_dotenv
 
+import common.constants as const
+
 from battle import Battle
-from constants import ANIME_ROOM, LEAGUE_ROOM, VG_ROOM, PEARY_ROOM
-from constants import ANIME_GENRES, MANGA_GENRES, ANIME_TYPES, MANGA_TYPES, LEAGUE_CATS
-from constants import JIKAN_API, DDRAGON_API, DDRAGON_IMG, DDRAGON_SPL, IGDB_API
-from constants import TIMER_USER, OWNER, BANLISTFILE
-from constants import METRONOME_BATTLE
-from constants import MAL_URL, MAL_IMG_URL, PLEB_URL, IMG_NOT_FOUND
-from user import User, set_mal_user, show_mal_user, mal_user_rand_series, set_steam_user, show_steam_user, steam_user_rand_series
-from room import Room, trivia_leaderboard_msg
-from trivia import gen_uhtml_img_code
+from common.mal import set_mal_user, show_mal_user, mal_user_rand_series
+from common.steam import set_steam_user, show_steam_user, steam_user_rand_series
+from common.utils import find_true_name, gen_uhtml_img_code, trivia_leaderboard_msg
+from room import Room
+from user import User
 
 PS_SOCKET = 'ws://sim.smogon.com:8000/showdown/websocket'
-JOINLIST = [ANIME_ROOM, LEAGUE_ROOM, VG_ROOM, PEARY_ROOM]
+JOINLIST = [const.ANIME_ROOM, const.LEAGUE_ROOM, const.VG_ROOM, const.PEARY_ROOM]
 WS = None
-SUCKFILE = 'suck.txt'
-SENTENCEFILE = 'sentences.txt'
-WPMFILE = 'wpm.txt'
-BIRTHDAYFILE = 'birthdays.json'
-CALENDARFILE = 'calendar.json'
-EMOTEFILE = 'emotes.json'
 
 
 def is_int_str(s):
@@ -132,15 +124,15 @@ def trivia_arg_parser(s):
     try:
         args = parser.parse_args(shlex.split(s))
 
-        all_categories = ['all'] + ANIME_TYPES + MANGA_TYPES + \
-                         list(ANIME_GENRES.keys()) + list(MANGA_GENRES.keys()) + \
-                         LEAGUE_CATS
+        all_categories = ['all'] + const.ANIME_TYPES + const.MANGA_TYPES + \
+                         list(const.ANIME_GENRES.keys()) + list(const.MANGA_GENRES.keys()) + \
+                         const.LEAGUE_CATS
         fixed_categories = []
         arg_categories = iter(args.categories)
 
         category = next(arg_categories, None)
         while category:
-            category = User.find_true_name(category)
+            category = find_true_name(category)
 
             if category in all_categories:
                 fixed_categories.append(category)
@@ -178,10 +170,10 @@ def check_answer(guess, answers):
         An empty string if the guess is incorrect, else the matching answer
         from answers.
     '''
-    t_guess = User.find_true_name(guess)
+    t_guess = find_true_name(guess)
 
     for answer in answers:
-        t_answer = User.find_true_name(answer)
+        t_answer = find_true_name(answer)
         if t_guess == t_answer:
             return answer
 
@@ -200,7 +192,7 @@ def check_answer(guess, answers):
         
         if ":" in answer:
             prefix = answer.split(':')[0]
-            acceptable.append(User.find_true_name(prefix))
+            acceptable.append(find_true_name(prefix))
 
         if t_guess in acceptable:
             return answer
@@ -213,30 +205,30 @@ class Bot:
         load_dotenv()
         self.username = os.getenv('PS_USERNAME')
         self.password = os.getenv('PS_PASSWORD')
-        self.birthdays = json.load(open(BIRTHDAYFILE))
-        self.calendar = json.load(open(CALENDARFILE))
-        self.sucklist = pd.read_csv(SUCKFILE)
+        self.birthdays = json.load(open(const.BIRTHDAYFILE))
+        self.calendar = json.load(open(const.CALENDARFILE))
+        self.sucklist = pd.read_csv(const.SUCKFILE)
 
         self.incoming = asyncio.Queue()
         self.outgoing = asyncio.Queue()
 
         self.roomlist = {}
-        self.banlists = json.load(open(BANLISTFILE))
+        self.banlists = json.load(open(const.BANLISTFILE))
 
-        self.room_emotes = json.load(open(EMOTEFILE))
+        self.room_emotes = json.load(open(const.EMOTEFILE))
 
         self.battles = {}
         self.allow_laddering = False
 
         self.typers = {}
-        self.wpms = pd.read_csv(WPMFILE, converters={'recent_runs': eval}).set_index('user')
-        with open(SENTENCEFILE) as f:
+        self.wpms = pd.read_csv(const.WPMFILE, converters={'recent_runs': eval}).set_index('user')
+        with open(const.SENTENCEFILE) as f:
             for i, _ in enumerate(f):
                 pass
             self.num_typing_sentences = i+1
 
-        self.mal_rooms = [ANIME_ROOM, PEARY_ROOM]
-        self.steam_rooms = [VG_ROOM, PEARY_ROOM]
+        self.mal_rooms = [const.ANIME_ROOM, const.PEARY_ROOM]
+        self.steam_rooms = [const.VG_ROOM, const.PEARY_ROOM]
 
         self.get_igdb_token()
 
@@ -284,7 +276,7 @@ class Bot:
         
         Args:
         '''
-        self.birthdays = json.load(open(BIRTHDAYFILE))
+        self.birthdays = json.load(open(const.BIRTHDAYFILE))
         while True:
             sleep_len = self.birthdays['next_time'] - time.time()
 
@@ -292,15 +284,15 @@ class Bot:
                 sleep_len = 60 * 60 * 6
 
                 self.birthdays['next_time'] = time.time() + sleep_len
-                with open(BIRTHDAYFILE, 'w') as f:
+                with open(const.BIRTHDAYFILE, 'w') as f:
                     json.dump(self.birthdays, f, indent=4)
   
             await asyncio.sleep(sleep_len)
             await self.send_birthday_text(automatic=True)
 
-            self.birthdays = json.load(open(BIRTHDAYFILE))
+            self.birthdays = json.load(open(const.BIRTHDAYFILE))
             self.birthdays['next_time'] = time.time() + 60 * 60 * 6
-            with open(BIRTHDAYFILE, 'w') as f:
+            with open(const.BIRTHDAYFILE, 'w') as f:
                 json.dump(self.birthdays, f, indent=4)
 
 
@@ -318,7 +310,7 @@ class Bot:
 
         idx = random.randrange(self.num_typing_sentences)
         sentence = ''
-        with open('sentences.txt') as f:
+        with open(const.SENTENCEFILE) as f:
             for i, l in enumerate(f):
                 if i == idx:
                     sentence = l[:-1]
@@ -417,8 +409,8 @@ class Bot:
             await self.login_check(parts[2], parts[3])
 
         # Typing test responses
-        elif parts[1] == 'pm' and User.find_true_name(parts[2]) in self.typers:
-            true_caller = User.find_true_name(parts[2])
+        elif parts[1] == 'pm' and find_true_name(parts[2]) in self.typers:
+            true_caller = find_true_name(parts[2])
             sec_elapsed = time.time() - self.typers[true_caller][0]
             answer_key = self.typers[true_caller][1]
             typing_wc = len(answer_key)
@@ -448,8 +440,8 @@ class Bot:
             if speed >= 160:
                 msg += 'Sending results for manual review.'
                 await self.outgoing.put(f'|/w {true_caller}, {msg}')
-                await self.outgoing.put(f'|/w {OWNER}, {true_caller} had {speed} WPM with {acc:0.1f}% accuracy.')
-                await self.outgoing.put(f'|/w {OWNER}, They typed: {parts[4]}')
+                await self.outgoing.put(f'|/w {const.OWNER}, {true_caller} had {speed} WPM with {acc:0.1f}% accuracy.')
+                await self.outgoing.put(f'|/w {const.OWNER}, They typed: {parts[4]}')
 
                 return
 
@@ -479,7 +471,7 @@ class Bot:
                 self.wpms.at[true_caller, 'avg_wpm'] = new_avg
                 self.wpms.at[true_caller, 'recent_runs'] = new_runs
 
-            self.wpms.to_csv(WPMFILE)
+            self.wpms.to_csv(const.WPMFILE)
             await self.outgoing.put(f'|/w {true_caller}, {msg}')
 
         # Emote calls from chat
@@ -547,13 +539,13 @@ class Bot:
             challenger (str): The user requesting a battle
             battle_format (str): The format of the requested battle
         '''
-        true_challenger = User.find_true_name(challenger)
+        true_challenger = find_true_name(challenger)
 
         for battle in self.battles:
             if true_challenger in self.battles[battle].players:
                 return
         
-        if battle_format == METRONOME_BATTLE:
+        if battle_format == const.METRONOME_BATTLE:
             team = Battle.make_team(battle_format)
             await self.outgoing.put(f'|/utm {team}\n/accept {challenger}')
 
@@ -573,8 +565,8 @@ class Bot:
             
             # Play on ladder if idle
             if not updatesearch['searching'] and self.allow_laddering:
-                team = Battle.make_team(METRONOME_BATTLE)
-                await self.outgoing.put(f'|/utm {team}\n/search {METRONOME_BATTLE}')
+                team = Battle.make_team(const.METRONOME_BATTLE)
+                await self.outgoing.put(f'|/utm {team}\n/search {const.METRONOME_BATTLE}')
 
         for battle in games:
             if battle not in self.battles:
@@ -659,8 +651,8 @@ class Bot:
         print("Logged in as: " + name)
 
         if not logged_in:
-            raise Exception("Not logged in.")
-            asyncio.get_running_loop.close()
+            print("Not logged in.")
+            start_bot(restart=True)
 
         if re.sub(r'\W+', '', name) == re.sub(r'\W+', '', self.username):
             await self.outgoing.put('|/avatar 97')
@@ -683,11 +675,11 @@ class Bot:
             char_url = ''
             if len(char) == 4:
                 # MAL char formatting is [name, img suffix, MAL page suffix]
-                img_uhtml = gen_uhtml_img_code(IMG_NOT_FOUND, height_resize=64, width_resize=64)
+                img_uhtml = gen_uhtml_img_code(const.IMG_NOT_FOUND, height_resize=64, width_resize=64)
                 if char[1]:
-                    img_uhtml = gen_uhtml_img_code(f'{MAL_IMG_URL}{char[1]}', height_resize=64, width_resize=64)
+                    img_uhtml = gen_uhtml_img_code(f'{const.MAL_IMG_URL}{char[1]}', height_resize=64, width_resize=64)
 
-                char_url = f'{MAL_URL}{char[3]}/{char[2]}'
+                char_url = f'{const.MAL_URL}{char[3]}/{char[2]}'
 
             elif len(char) == 2:
                 # A/M staff formatting is [name, img link]
@@ -707,7 +699,7 @@ class Bot:
         return char_uhtml
 
 
-    async def send_birthday_text(self, automatic, ctx=ANIME_ROOM):
+    async def send_birthday_text(self, automatic, ctx=const.ANIME_ROOM):
         '''
         Sends a uhtml-formatted table of the current date's birthdays.
 
@@ -715,7 +707,7 @@ class Bot:
             automatic (bool): Whether or not this was automatically scheduled.
             ctx (str): the context to send to.
         '''
-        self.birthdays = json.load(open(BIRTHDAYFILE))
+        self.birthdays = json.load(open(const.BIRTHDAYFILE))
         today = datetime.datetime.today().strftime('%B %d').replace(' 0', ' ')
         short_today = datetime.datetime.today().strftime('%b %d').replace(' 0', ' ')
         birthday_chars = self.birthdays[today]
@@ -832,7 +824,7 @@ class Bot:
         '''
 
         msg = ''
-        true_caller = User.find_true_name(caller)
+        true_caller = find_true_name(caller)
 
         if command[0] != ']' or command == ']':
             return
@@ -859,7 +851,7 @@ class Bot:
             msg = 'Have you heard of joogle?'
 
         elif command[0] == 'plebs' and User.compare_ranks(caller[0], '+'):
-            uhtml = gen_uhtml_img_code(PLEB_URL, height_resize=250)
+            uhtml = gen_uhtml_img_code(const.PLEB_URL, height_resize=250)
             msg = f'/adduhtml hippo-pleb, {uhtml}'
 
         elif command[0] == 'calendar':
@@ -878,7 +870,7 @@ class Bot:
             if len(command) != 3:
                 await self.outgoing.put(f'{room}|Invalid syntax. Use ]bl_add category, item_to_ban')
                 return
-            list_name = User.find_true_name(command[1])
+            list_name = find_true_name(command[1])
             if (list_name == 'anime' or list_name == 'manga') and room in self.mal_rooms:
                 try:
                     to_bl = int(command[2])
@@ -891,7 +883,7 @@ class Bot:
                     return
 
                 async with aiohttp.ClientSession() as session:
-                    async with session.get(f'{JIKAN_API}{list_name}/{to_bl}') as r:
+                    async with session.get(f'{const.JIKAN_API}{list_name}/{to_bl}') as r:
                         resp = await r.text()
 
                         if r.status != 200:
@@ -899,7 +891,7 @@ class Bot:
                             return
                         
                         self.banlists[list_name].append(to_bl)
-                        with open(BANLISTFILE, 'w') as f:
+                        with open(const.BANLISTFILE, 'w') as f:
                             json.dump(self.banlists, f, indent=4)
 
         elif command[0] == 'bl_remove' and User.compare_ranks(caller[0], '%'):
@@ -907,7 +899,7 @@ class Bot:
                 await self.outgoing.put(f'{room}|Invalid syntax. Use ]bl_remove category, item_to_unbl')
                 return
 
-            list_name = User.find_true_name(command[1])
+            list_name = find_true_name(command[1])
             if (list_name == 'anime' or list_name == 'manga') and room in self.mal_rooms:
                 try:
                     to_bl = int(command[2])
@@ -917,7 +909,7 @@ class Bot:
 
                 if to_bl in self.banlists[list_name]:
                     self.banlists[list_name].remove(to_bl)
-                    with open(BANLISTFILE, 'w') as f:
+                    with open(const.BANLISTFILE, 'w') as f:
                         json.dump(self.banlists, f, indent=4)
                     msg = 'Removed series from banlist.'
                 else:
@@ -931,7 +923,7 @@ class Bot:
                 pm = True
                 room = ''
 
-            list_name = User.find_true_name(command[1])
+            list_name = find_true_name(command[1])
             msg = 'Category not found.'
             if list_name in self.banlists:
                 msg = f'{list_name} banlist: {json.dumps(self.banlists[list_name])}'
@@ -945,7 +937,7 @@ class Bot:
             emote = command[1].lower()
             if emote.endswith(','):
                 emote = emote[:-1]
-            if User.find_true_name(emote) != emote:
+            if find_true_name(emote) != emote:
                 await self.outgoing.put(f'{room}|Invalid syntax. Use ]set_emote emote, url')
                 return
 
@@ -1019,7 +1011,7 @@ class Bot:
                 pass
             else:
                 self.wpms.loc[true_caller, ['top_wpm', 'avg_wpm', 'recent_runs']] = 0, 0, []
-                self.wpms.to_csv(WPMFILE)
+                self.wpms.to_csv(const.WPMFILE)
             msg = f'Reset {caller}\'s typing speed record to 0 WPM.'
 
         elif command[0] == 'wpm':
@@ -1027,7 +1019,7 @@ class Bot:
             true_wpm_user = true_caller
             if len(command) > 1:
                 wpm_user = ' '.join(command[1:])
-                true_wpm_user = User.find_true_name(wpm_user)
+                true_wpm_user = find_true_name(wpm_user)
             
             try:
                 wpminfo = self.wpms.loc[true_wpm_user]
@@ -1040,7 +1032,7 @@ class Bot:
                 msg = f'{wpm_user} - Top speed: {top_wpm} WPM. Average of past {run_count} runs: {avg_wpm} WPM.'
 
         # animeandmanga
-        elif command[0] == 'jibun' and room == ANIME_ROOM:
+        elif command[0] == 'jibun' and room == const.ANIME_ROOM:
             msg = '/announce JIBUN WOOOOOOOOOO'
 
         # MAL
@@ -1063,12 +1055,12 @@ class Bot:
             args = mal_arg_parser(to_parse, true_caller)
             
             if args:
-                args.username = User.find_true_name(' '.join(args.username))
+                args.username = find_true_name(' '.join(args.username))
             else:
                 await self.outgoing.put(room + '| Incorrect formatting.')
                 return
 
-            mal_list = pd.read_csv('mal.txt')
+            mal_list = pd.read_csv(const.MALFILE)
             existing_user = mal_list[mal_list['user'] == args.username]
             if existing_user.empty:
                 msg = 'This user does not have a MAL set. Please use ]addmal to set a valid account.'
@@ -1111,12 +1103,12 @@ class Bot:
             args = steam_arg_parser(to_parse, true_caller)
             
             if args:
-                args.username = User.find_true_name(' '.join(args.username))
+                args.username = find_true_name(' '.join(args.username))
             else:
                 await self.outgoing.put(room + '| Incorrect formatting.')
                 return
 
-            steam_list = pd.read_csv('steam.txt')
+            steam_list = pd.read_csv(const.STEAMFILE)
             existing_user = steam_list[steam_list['user'] == args.username]
             if existing_user.empty:
                 msg = 'This user does not have a Steam set. Please use ]addsteam to set a valid account. Make sure to use the URL ID and not the Steam username.'
@@ -1151,7 +1143,7 @@ class Bot:
                          'where themes != (42);')
 
                 async with aiohttp.ClientSession(headers=headers) as session:
-                    r = await session.post(IGDB_API + 'games', data=data)
+                    r = await session.post(const.IGDB_API + 'games', data=data)
 
                     resp = await r.text()
                     if r.status != 200:
@@ -1172,7 +1164,7 @@ class Bot:
             if len(command) > 1:
                 if command[1] == 'top' and not pm:
                     suckboard = self.sucklist.sort_values('count', ascending=False)
-                    suckboard = suckboard[suckboard['user'] != TIMER_USER].head(n=5).values.tolist()
+                    suckboard = suckboard[suckboard['user'] != const.TIMER_USER].head(n=5).values.tolist()
                     msg = trivia_leaderboard_msg(suckboard, 'Suckiest', name='suckboard')
 
                     await self.outgoing.put(room + '|' + msg)
@@ -1191,18 +1183,18 @@ class Bot:
                 
                 # There's a global cooldown of a random number between
                 # 15 and 90 minutes.
-                end_time = self.sucklist.loc[self.sucklist['user'] == TIMER_USER, 'count'][0]
+                end_time = self.sucklist.loc[self.sucklist['user'] == const.TIMER_USER, 'count'][0]
                 if time.time() > end_time:
                     self.sucklist.loc[self.sucklist['user'] == true_caller, 'count'] += 1
                     scount = int(suckinfo['count'].iat[0] + 1)
-                    self.sucklist.loc[self.sucklist['user'] == TIMER_USER, 'count'] = time.time() + random.randint(60*5, 60*30)
+                    self.sucklist.loc[self.sucklist['user'] == const.TIMER_USER, 'count'] = time.time() + random.randint(60*5, 60*30)
                 else:
                     self.sucklist.loc[self.sucklist['user'] == true_caller, 'count'] = 0
                     scount = 0
 
                 msg = '{} has sucked {} times.'.format(caller, str(scount))
 
-            self.sucklist.to_csv(SUCKFILE, index=False)
+            self.sucklist.to_csv(const.SUCKFILE, index=False)
 
         
         # Trivia
@@ -1214,7 +1206,7 @@ class Bot:
             trivia_status = trivia_game.active
 
             if (command[1] == 'start' and not trivia_status and
-                    (User.compare_ranks(caller[0], '+') or true_caller == OWNER)):
+                    (User.compare_ranks(caller[0], '+') or true_caller == const.OWNER)):
 
                 args = None
                 if len(command) > 2:
@@ -1260,9 +1252,9 @@ class Bot:
                 score = 0
 
                 if len(command) > 2:
-                    user, score = trivia_game.userscore(User.find_true_name(''.join(command[2:])))
+                    user, score = trivia_game.userscore(find_true_name(''.join(command[2:])))
                 else:
-                    user, score = trivia_game.userscore(User.find_true_name(caller))
+                    user, score = trivia_game.userscore(find_true_name(caller))
 
                 if user is None:
                     msg = 'User not found.'
@@ -1292,11 +1284,11 @@ class Bot:
                 answer_check = ''
                 # Anime/manga/video game titles have a lot of different colloquial names.
                 # Those rooms are more flexible in accepting answers.
-                if room == ANIME_ROOM or room == VG_ROOM:
+                if room == const.ANIME_ROOM or room == const.VG_ROOM:
                     answer_check = check_answer(''.join(command[1:]), trivia_game.answers)
                 else:
                     for answer in trivia_game.answers:
-                        if User.find_true_name(answer) == User.find_true_name(''.join(command[1:])):
+                        if find_true_name(answer) == find_true_name(''.join(command[1:])):
                             answer_check = answer
                             break
                 if answer_check:
@@ -1316,14 +1308,14 @@ class Bot:
             await self.command_center(room, caller, new_command)
             return
         
-        elif command[0] == 'ladder_toggle' and true_caller == OWNER:
+        elif command[0] == 'ladder_toggle' and true_caller == const.OWNER:
             self.allow_laddering = not self.allow_laddering
             # Refreshes updatesearch as well.
             await self.outgoing.put('|/cancelsearch')
 
             msg = f'Laddering is now {self.allow_laddering}.'
 
-        elif command[0] == 'test' and true_caller == OWNER:
+        elif command[0] == 'test' and true_caller == const.OWNER:
             msg = 'a' + u'\ufeff' + 'b'
 
 

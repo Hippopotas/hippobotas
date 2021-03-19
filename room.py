@@ -1,20 +1,8 @@
 import asyncio
 
-from constants import ANIME_ROOM, LEAGUE_ROOM, VG_ROOM
-from user import User
+from common.constants import ANIME_ROOM, LEAGUE_ROOM, VG_ROOM
+from common.utils import trivia_leaderboard_msg
 from trivia import TriviaGame
-
-
-def trivia_leaderboard_msg(leaderboard, title, name='tleaderboard', metric='pts'):
-    msg = (f'/adduhtml {name}, '
-            '<center><table><tr><th colspan=\'3\' style=\'border-bottom:1px solid\'>'
-            '{}</th></tr>'.format(title))
-
-    for i, [user, score] in enumerate(leaderboard):
-        msg += '<tr><td>{}</td><th>{}</th><td>{} {}</td></tr>'.format(i+1, user, int(score), metric)
-
-    msg += '</table></center>'
-    return msg
 
 
 class Room:

@@ -1,3 +1,8 @@
+import os
+
+# Base directory of the bot.
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+
 ANIME_ROOM = 'animeandmanga'
 LEAGUE_ROOM = 'leagueoflegends'
 VG_ROOM = 'videogames'
@@ -6,13 +11,22 @@ PEARY_ROOM = 'bikinibottom'
 TIMER_USER = 'T*'
 
 JIKAN_API = 'https://api.jikan.moe/v3/'
-DDRAGON_API = 'http://ddragon.leagueoflegends.com/cdn/11.2.1/data/en_US/'
-DDRAGON_IMG = 'http://ddragon.leagueoflegends.com/cdn/11.2.1/img/'
+DDRAGON_API = 'http://ddragon.leagueoflegends.com/cdn/11.6.1/data/en_US/'
+DDRAGON_IMG = 'http://ddragon.leagueoflegends.com/cdn/11.6.1/img/'
 DDRAGON_SPL = 'http://ddragon.leagueoflegends.com/cdn/img/champion/loading/'
 STEAM_API = 'http://api.steampowered.com/'
 IGDB_API = 'https://api.igdb.com/v4/'
 
-BANLISTFILE = 'banlist.json'
+BANLISTFILE = os.path.join(BASE_DIR, 'data/banlist.json')
+BIRTHDAYFILE = os.path.join(BASE_DIR, 'data/birthdays.json')
+CALENDARFILE = os.path.join(BASE_DIR, 'data/calendar.json')
+EMOTEFILE = os.path.join(BASE_DIR, 'data/emotes.json')
+SENTENCEFILE = os.path.join(BASE_DIR, 'data/sentences.txt')
+SUCKFILE = os.path.join(BASE_DIR, 'data/suck.txt')
+WPMFILE = os.path.join(BASE_DIR, 'data/wpm.txt')
+
+MALFILE = os.path.join(BASE_DIR, 'data/mal.txt')
+STEAMFILE = os.path.join(BASE_DIR, 'data/steam.txt')
 
 MAL_URL = 'https://myanimelist.net/'
 MAL_IMG_URL = 'https://cdn.myanimelist.net/images/'

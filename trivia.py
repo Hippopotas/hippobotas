@@ -8,15 +8,9 @@ import re
 import requests
 import time
 
-from PIL import ImageFile
-from urllib import request as ulreq
-from urllib.error import HTTPError
+import common.constants as const
 
-from constants import ANIME_ROOM, LEAGUE_ROOM, VG_ROOM
-from constants import ANIME_GENRES, MANGA_GENRES, ANIME_TYPES, MANGA_TYPES, LEAGUE_CATS
-from constants import JIKAN_API, DDRAGON_API, DDRAGON_IMG, DDRAGON_SPL
-from constants import TIMER_USER, BANLISTFILE
-from constants import IMG_NOT_FOUND
+from common.utils import gen_uhtml_img_code
 
 BASE_DIFF = 3
 AN_DIFF_SCALE = 475
@@ -24,53 +18,6 @@ MA_DIFF_SCALE = 275
 VG_DIFF_SCALE = 300
 UHTML_NAME = 'trivia'
 PIC_SIZE = 225
-
-
-def img_dims_from_uri(uri):
-    # Returns width, height
-    dims = (0, 0)
-    data = None
-    retry = 0
-    try:
-        with ulreq.urlopen(uri) as f:
-            while retry < 1000:
-                p = ImageFile.Parser()
-
-                if not data:
-                    data = f.read(1024)
-                else:
-                    data += f.read(1024)
-
-                p.feed(data)
-
-                try:
-                    dims = p.image.size
-                except AttributeError:
-                    retry += 1
-                    continue
-                else:
-                    break
-    except HTTPError as e:
-        print(e)
-
-    return dims
-
-
-def gen_uhtml_img_code(url, height_resize=300, width_resize=None):
-    w, h = img_dims_from_uri(url)
-    if not w or not h:
-        w, h = img_dims_from_uri(IMG_NOT_FOUND)
-
-    if h > height_resize:
-        w = w * height_resize // h
-        h = height_resize
-    
-    if width_resize:
-        if w > width_resize:
-            h = h * width_resize // w
-            w = width_resize
-
-    return '<center><img src=\'{}\' width={} height={}></center>'.format(url, w, h)
 
 
 CENSOR_WHITELIST = ['the', 'and']
@@ -140,14 +87,14 @@ class TriviaGame:
             await asyncio.sleep(0.3)
 
     def reset_scoreboard(self, length=60*60*24*3):
-        timer = self.scoreboard[self.scoreboard['user'] == TIMER_USER]
+        timer = self.scoreboard[self.scoreboard['user'] == const.TIMER_USER]
         # Room that does not support auto-reset
         if timer.empty:
             self.scoreboard = pd.DataFrame(columns=['user', 'score'])
             return
         
         if (time.time() - timer['score'].iloc[0]) > length:
-            timer.loc[timer['user'] == TIMER_USER, 'score'] = time.time()
+            timer.loc[timer['user'] == const.TIMER_USER, 'score'] = time.time()
             self.scoreboard = timer
 
     async def start(self, n=10, diff=BASE_DIFF, categories=['all'],
@@ -192,7 +139,7 @@ class TriviaGame:
         if n > 10:
             n = 10
         self.scoreboard = self.scoreboard.sort_values('score', ascending=False)
-        no_timer = self.scoreboard[self.scoreboard['user'] != TIMER_USER]
+        no_timer = self.scoreboard[self.scoreboard['user'] != const.TIMER_USER]
         return no_timer.head(n=n).values.tolist()
     
     def userscore(self, user):
@@ -218,18 +165,18 @@ class QuestionList:
 
     async def gen_list(self, n, quizbowl=False):
         async with aiohttp.ClientSession() as session:
-            if self.room == ANIME_ROOM:
+            if self.room == const.ANIME_ROOM:
                 for _ in range(n):
                     if quizbowl:
                         await self.gen_am_qbowl_question(session)
                     else:
                         await self.gen_am_question(session)
 
-            elif self.room == LEAGUE_ROOM:
+            elif self.room == const.LEAGUE_ROOM:
                 for _ in range(n):
                     await self.gen_lol_question(session)
             
-            elif self.room == VG_ROOM:
+            elif self.room == const.VG_ROOM:
                 vg_database = None
                 with open('data/vg_trivia.json') as f:
                     vg_database = json.load(f)
@@ -260,18 +207,18 @@ class QuestionList:
 
             if 'all' not in self.categories:
                 for c in self.categories:
-                    if c in ANIME_TYPES:
+                    if c in const.ANIME_TYPES:
                         anime_media.append(('anime', c))
-                    if c in MANGA_TYPES:
+                    if c in const.MANGA_TYPES:
                         manga_media.append(('manga', c))
 
                 for c in self.categories:
-                    if c in ANIME_GENRES:
-                        genres['anime'].append(ANIME_GENRES[c])
+                    if c in const.ANIME_GENRES:
+                        genres['anime'].append(const.ANIME_GENRES[c])
                         if len(anime_media) == 0:
                             anime_media = [('anime', '')]
-                    if c in MANGA_GENRES:
-                        genres['manga'].append(MANGA_GENRES[c])
+                    if c in const.MANGA_GENRES:
+                        genres['manga'].append(const.MANGA_GENRES[c])
                         if len(manga_media) == 0:
                             manga_media = [('manga', '')]
 
@@ -320,7 +267,7 @@ class QuestionList:
             if self.by_rating:
                 sort_method = 'score'
 
-            url = (f'{JIKAN_API}search/{medium}?q=&type={sub_medium}&genre={genre_code}&'
+            url = (f'{const.JIKAN_API}search/{medium}?q=&type={sub_medium}&genre={genre_code}&'
                    f'genre_exclude={g_exclude}&page=1&order_by={sort_method}&sort=desc')
 
             async with session.get(url) as r:
@@ -369,7 +316,7 @@ class QuestionList:
             if self.excludecats and re.sub(r'[^a-zA-Z0-9]', '', series['type']).lower() in exclude_media:
                 continue
 
-            async with session.get(JIKAN_API + '{}/{}'.format(medium, series['mal_id'])) as r:
+            async with session.get(const.JIKAN_API + '{}/{}'.format(medium, series['mal_id'])) as r:
                 resp = await r.text()
                 series_data = json.loads(resp)
 
@@ -382,7 +329,7 @@ class QuestionList:
             
             valid_series = True
 
-            bl = json.load(open(BANLISTFILE))
+            bl = json.load(open(const.BANLISTFILE))
             if series['mal_id'] in bl[medium]:
                 valid_series = False
 
@@ -444,13 +391,13 @@ class QuestionList:
 
         qtypes = []
         if 'all' not in self.categories:
-            qtypes = [c for c in LEAGUE_CATS if c in self.categories]
+            qtypes = [c for c in const.LEAGUE_CATS if c in self.categories]
 
         if self.excludecats:
-            qtypes = LEAGUE_CATS - qtypes
+            qtypes = const.LEAGUE_CATS - qtypes
 
         if len(qtypes) == 0:
-            qtypes = LEAGUE_CATS
+            qtypes = const.LEAGUE_CATS
         
         if len(qtypes) == 3:
             data['qtype'] = random.choices(qtypes, weights=[4, 2, 4])[0]
@@ -463,7 +410,7 @@ class QuestionList:
         if data['qtype'] == 'items':
             base = {k:data[k] for k in ('qtype', 'item')}
         else:
-            async with session.get(DDRAGON_API + 'champion/{}.json'.format(data['champ'])) as r:
+            async with session.get(const.DDRAGON_API + 'champion/{}.json'.format(data['champ'])) as r:
                 resp = await r.text()
                 data['champ_data'] = json.loads(resp)['data'][data['champ']]
 
@@ -480,11 +427,11 @@ class QuestionList:
     async def gen_lol_question(self, session):
         data = {'all_champs': {}, 'champ': '', 'champ_data': {}, 'all_items': {}, 'item': {}}
 
-        async with session.get(DDRAGON_API + 'champion.json') as r:
+        async with session.get(const.DDRAGON_API + 'champion.json') as r:
             resp = await r.text()
             data['all_champs'] = json.loads(resp)['data']
         
-        async with session.get(DDRAGON_API + 'item.json') as r:
+        async with session.get(const.DDRAGON_API + 'item.json') as r:
             resp = await r.text()
             data['all_items'] = json.loads(resp)['data']
         data, base = await self.gen_lol_base(session, data)
@@ -494,7 +441,7 @@ class QuestionList:
         self.q_bases.append(base)
 
         if data['qtype'] == 'items':
-            img_url = DDRAGON_IMG + 'item/{}.png'.format(data['item'])
+            img_url = const.DDRAGON_IMG + 'item/{}.png'.format(data['item'])
             img_url = gen_uhtml_img_code(self.check_for_jpg(img_url))
             await self.questions.put(['/adduhtml {}, {}'.format(UHTML_NAME, img_url),
                                       [data['all_items'][data['item']]['name']]])
@@ -505,7 +452,7 @@ class QuestionList:
                     skin_name = skin['name'] if skin['name'] != 'default' else data['champ_data']['name']
                     break
 
-            img_url = DDRAGON_SPL + '{}_{}.png'.format(data['champ'], data['cval'])
+            img_url = const.DDRAGON_SPL + '{}_{}.png'.format(data['champ'], data['cval'])
             img_url = gen_uhtml_img_code(self.check_for_jpg(img_url))
             await self.questions.put(['/adduhtml {}, {}'.format(UHTML_NAME, img_url),
                                       [skin_name]])
@@ -513,13 +460,13 @@ class QuestionList:
             ability = {}
             if data['cval'] == 0:
                 ability = data['champ_data']['passive']
-                img_url = DDRAGON_IMG + 'passive/{}'.format(ability['image']['full'])
+                img_url = const.DDRAGON_IMG + 'passive/{}'.format(ability['image']['full'])
                 img_url = gen_uhtml_img_code(self.check_for_jpg(img_url))
                 await self.questions.put(['/adduhtml {}, {}'.format(UHTML_NAME, img_url),
                                           [ability['name']]])
             else:
                 ability = data['champ_data']['spells'][data['cval']-1]
-                img_url = DDRAGON_IMG + 'spell/{}'.format(ability['image']['full'])
+                img_url = const.DDRAGON_IMG + 'spell/{}'.format(ability['image']['full'])
                 img_url = gen_uhtml_img_code(self.check_for_jpg(img_url))
                 await self.questions.put(['/adduhtml {}, {}'.format(UHTML_NAME, img_url),
                                           [ability['name']]])

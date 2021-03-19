@@ -1,7 +1,7 @@
 import random
 
-from constants import METRONOME_BATTLE
-from user import User
+from common.constants import METRONOME_BATTLE
+from common.utils import find_true_name
 
 
 class Battle:
@@ -19,7 +19,7 @@ class Battle:
             return
 
         if parts[1] == 'player':
-            self.players.append(User.find_true_name(parts[3]))
+            self.players.append(find_true_name(parts[3]))
 
 
     @staticmethod
