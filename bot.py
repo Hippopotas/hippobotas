@@ -385,6 +385,34 @@ class Bot:
             print(parts)
             return
 
+        # Managing room userlists
+        if parts[1] == 'init' and 'chat' in parts[2]:
+            userlist = parts[6].split(',')[1:]
+            for user in userlist:
+                rank = user[0]
+                username = user[1:].split('@')[0]
+                self.roomlist[curr_room].add_user(username, rank)
+        
+        if parts[1] == 'J':
+            user = parts[2]
+            rank = user[0]
+            username = user[1:].split('@')[0]
+            self.roomlist[curr_room].add_user(username, rank)
+
+        elif parts[1] == 'L':
+            user = parts[2]
+            rank = user[0]
+            username = user[1:].split('@')[0]
+            self.roomlist[curr_room].remove_user(username)
+
+        elif parts[1] == 'N':
+            new_user = parts[2]
+            rank = new_user[0]
+            username = new_user[1:].split('@')[0]
+            old_user = parts[3]
+            self.roomlist[curr_room].remove_user(old_user)
+            self.roomlist[curr_room].add_user(username, rank)
+
         # Battles
         if parts[1] == 'updatesearch':
             await self.update_battles(json.loads(parts[2]))
@@ -866,16 +894,32 @@ class Bot:
             await self.send_birthday_text(automatic=False, ctx=room)
 
         # Banlists
-        elif command[0] == 'bl_add' and User.compare_ranks(caller[0], '%'):
+        elif command[0] == 'bl_add':
             if len(command) != 3:
                 await self.outgoing.put(f'{room}|Invalid syntax. Use ]bl_add category, item_to_ban')
                 return
+
+            has_perms = False
             list_name = find_true_name(command[1])
-            if (list_name == 'anime' or list_name == 'manga') and room in self.mal_rooms:
+            if pm:
+                if list_name == 'anime' or list_name == 'manga':
+                    user_info = self.roomlist[const.ANIME_ROOM].get_user(caller)
+                    room_rank = ' '
+                    if user_info:
+                        room_rank = user_info.rank
+
+                    if User.compare_ranks(room_rank, '%') or User.compare_ranks(caller[0], '%'):
+                        has_perms = True
+            else:
+                if list_name == 'anime' or list_name == 'manga' and room in self.mal_rooms:
+                    if User.compare_ranks(caller[0], '%'):
+                        has_perms = True
+
+            if has_perms:
                 try:
                     to_bl = int(command[2])
                 except ValueError:
-                    await self.outgoing.put(f'{room}|Please enter the MAL id number of the series to banlist.')
+                    await self.outgoing.put(f'{room}|Please use the MAL id number of the series to banlist.')
                     return
 
                 if to_bl in self.banlists[list_name]:
@@ -894,17 +938,32 @@ class Bot:
                         with open(const.BANLISTFILE, 'w') as f:
                             json.dump(self.banlists, f, indent=4)
 
-        elif command[0] == 'bl_remove' and User.compare_ranks(caller[0], '%'):
+        elif command[0] == 'bl_remove':
             if len(command) != 3:
                 await self.outgoing.put(f'{room}|Invalid syntax. Use ]bl_remove category, item_to_unbl')
                 return
 
+            has_perms = False
             list_name = find_true_name(command[1])
-            if (list_name == 'anime' or list_name == 'manga') and room in self.mal_rooms:
+            if pm:
+                if list_name == 'anime' or list_name == 'manga':
+                    user_info = self.roomlist[const.ANIME_ROOM].get_user(caller)
+                    room_rank = ' '
+                    if user_info:
+                        room_rank = user_info.rank
+
+                    if User.compare_ranks(room_rank, '%') or User.compare_ranks(caller[0], '%'):
+                        has_perms = True
+            else:
+                if list_name == 'anime' or list_name == 'manga' and room in self.mal_rooms:
+                    if User.compare_ranks(caller[0], '%'):
+                        has_perms = True
+
+            if has_perms:
                 try:
                     to_bl = int(command[2])
                 except ValueError:
-                    await self.outgoing.put(f'{room}|Please enter the MAL id number of the series to banlist.')
+                    await self.outgoing.put(f'{room}|Please enter the MAL id number of the series to un-banlist.')
                     return
 
                 if to_bl in self.banlists[list_name]:
@@ -915,17 +974,33 @@ class Bot:
                 else:
                     msg = 'Series not on banlist.'
 
-        elif command[0] == 'bl_list' and User.compare_ranks(caller[0], '%'):
+        elif command[0] == 'bl_list':
             if len(command) != 2:
                 await self.outgoing.put(f'{room}|Invalid syntax. Use ]bl_list category')
                 return
+
+            has_perms = False
+            list_name = find_true_name(command[1])
+            if pm:
+                if list_name == 'anime' or list_name == 'manga':
+                    user_info = self.roomlist[const.ANIME_ROOM].get_user(caller)
+                    room_rank = ' '
+                    if user_info:
+                        room_rank = user_info.rank
+
+                    if User.compare_ranks(room_rank, '%') or User.compare_ranks(caller[0], '%'):
+                        has_perms = True
+            else:
+                if list_name == 'anime' or list_name == 'manga' and room in self.mal_rooms:
+                    if User.compare_ranks(caller[0], '%'):
+                        has_perms = True
+
             if not pm:
                 pm = True
                 room = ''
 
-            list_name = find_true_name(command[1])
             msg = 'Category not found.'
-            if list_name in self.banlists:
+            if list_name in self.banlists and has_perms:
                 msg = f'{list_name} banlist: {json.dumps(self.banlists[list_name])}'
 
         # Emotes
@@ -1316,8 +1391,8 @@ class Bot:
             msg = f'Laddering is now {self.allow_laddering}.'
 
         elif command[0] == 'test' and true_caller == const.OWNER:
-            msg = 'a' + u'\ufeff' + 'b'
-
+            await self.outgoing.put('|/roomauth yfc')
+            return
 
         if msg == '':
             return

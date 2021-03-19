@@ -1,14 +1,31 @@
 import asyncio
 
 from common.constants import ANIME_ROOM, LEAGUE_ROOM, VG_ROOM
-from common.utils import trivia_leaderboard_msg
+from common.utils import find_true_name, trivia_leaderboard_msg
 from trivia import TriviaGame
+from user import User
 
 
 class Room:
     def __init__(self, room):
         self.roomname = room
+        self.users = []
         self.trivia = TriviaGame(self.roomname)
+    
+    def add_user(self, username, rank):
+        self.users.append(User(username, rank))
+    
+    def remove_user(self, username):
+        for u in self.users:
+            if u.true_name == find_true_name(username):
+                self.users.remove(u)
+
+    def get_user(self, username):
+        for u in self.users:
+            if u.true_name == find_true_name(username):
+                return u
+
+        return None
 
     async def trivia_game(self, putter, i_putter, n=10, diff=3,
                           categories=['all'], excludecats=False, by_rating=False, autoskip=20):
