@@ -1026,7 +1026,7 @@ class Bot:
 
             self.room_emotes[room][emote] = emote_url
 
-            with open('emotes.json', 'w') as f:
+            with open(const.EMOTEFILE, 'w') as f:
                 json.dump(self.room_emotes, f, indent=4)
 
             msg = f'Set :{emote}: to show {emote_url}.'
@@ -1044,7 +1044,7 @@ class Bot:
                 if emote in self.room_emotes[room]:
                     del self.room_emotes[room][emote]
 
-                    with open('emotes.json', 'w') as f:
+                    with open(const.EMOTEFILE, 'w') as f:
                         json.dump(self.room_emotes, f, indent=4)
 
                     msg = f'Removed {emote} from room emotes.'
