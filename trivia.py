@@ -498,6 +498,7 @@ class QuestionList:
         vidya = vg_database[rank]
 
         while vidya['id'] in self.q_bases:
+            rank = -1
             while rank < 0 or rank >= len(vg_database):
                 rank = int(random.gauss(VG_DIFF_SCALE * (self.diff - 2),
                                         (VG_DIFF_SCALE * self.diff) // 2))
