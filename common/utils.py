@@ -45,7 +45,8 @@ def img_dims_from_uri(uri):
     return dims
 
 
-def gen_uhtml_img_code(url, height_resize=300, width_resize=None):
+def gen_uhtml_img_code(url, height_resize=300, width_resize=None, center=True,
+                       **kwargs):
     """ Generates basic HTML code for an img tag from a URL. """
     w, h = img_dims_from_uri(url)
     if not w or not h:
@@ -60,7 +61,14 @@ def gen_uhtml_img_code(url, height_resize=300, width_resize=None):
             h = h * width_resize // w
             w = width_resize
 
-    return '<center><img src=\'{}\' width={} height={}></center>'.format(url, w, h)
+    kwarg_opts = ''
+    for k in kwargs:
+        kwarg_opts += f'{k}={kwargs[k]} '
+    uhtml = f'<img src=\'{url}\' width={w} height={h} {kwarg_opts}>'
+    if center:
+        uhtml = f'<center>{uhtml}</center>'
+
+    return uhtml
 
 
 def trivia_leaderboard_msg(leaderboard, title, name='tleaderboard', metric='pts'):
@@ -74,3 +82,19 @@ def trivia_leaderboard_msg(leaderboard, title, name='tleaderboard', metric='pts'
 
     msg += '</table></center>'
     return msg
+
+
+def monospace_table_row(text_list, delimiter='|'):
+    """ Given list of (text, max_col_len pairs), returns string
+        containing table-row-ified version of the text.
+    """
+    row_str = ''
+    for text in text_list:
+        col_str = f'{text[0]: <{text[1]}}'
+        row_str += col_str
+        row_str += f' {delimiter} '
+
+    del_len = -1 * (len(delimiter) + 2)
+    row_str = row_str[:del_len]
+
+    return row_str

@@ -18,6 +18,7 @@ from dotenv import load_dotenv
 import common.constants as const
 
 from battle import Battle
+from gacha import GachaManager
 from common.mal import set_mal_user, show_mal_user, mal_user_rand_series
 from common.steam import set_steam_user, show_steam_user, steam_user_rand_series
 from common.utils import find_true_name, gen_uhtml_img_code, trivia_leaderboard_msg
@@ -25,7 +26,12 @@ from room import Room
 from user import User
 
 PS_SOCKET = 'ws://sim.smogon.com:8000/showdown/websocket'
-JOINLIST = [const.ANIME_ROOM, const.LEAGUE_ROOM, const.VG_ROOM, const.PEARY_ROOM]
+JOINLIST = [const.ANIME_ROOM,
+            const.LEAGUE_ROOM,
+            const.VG_ROOM,
+            const.PEARY_ROOM,
+            const.GACHA_ROOM,
+            const.SCHOL_ROOM]
 WS = None
 
 
@@ -174,7 +180,7 @@ def check_answer(guess, answers):
 
     for answer in answers:
         t_answer = find_true_name(answer)
-        if t_guess == t_answer:
+        if (t_guess == t_answer) or (t_answer in t_guess):
             return answer
 
         # The heuristic for generating aliases for the answers is as follows -
@@ -227,6 +233,8 @@ class Bot:
                 pass
             self.num_typing_sentences = i+1
 
+        self.gachaman = GachaManager()
+
         self.mal_rooms = [const.ANIME_ROOM, const.PEARY_ROOM]
         self.steam_rooms = [const.VG_ROOM, const.PEARY_ROOM]
 
@@ -268,6 +276,7 @@ class Bot:
         Args:
         '''
         asyncio.create_task(self.birthday_repeater(), name='birthdays')
+        asyncio.create_task(self.gacha_repeater(), name='gacha-repeat')
     
 
     async def birthday_repeater(self):
@@ -294,6 +303,24 @@ class Bot:
             self.birthdays['next_time'] = time.time() + 60 * 60 * 6
             with open(const.BIRTHDAYFILE, 'w') as f:
                 json.dump(self.birthdays, f, indent=4)
+
+
+    async def gacha_repeater(self):
+        '''
+        Repeating process for adding gacha currency.
+        Triggers at the top of every hour.
+
+        Args:
+        '''
+        while True:
+            now = datetime.datetime.now()
+            next_hour = (now + datetime.timedelta(hours=1)).replace(second=0, minute=1)
+            sleep_len = (next_hour - now).seconds
+
+            await asyncio.sleep(sleep_len)
+            # Potential race condition vs bot startup should
+            # be fine given the above sleep delay.
+            self.gachaman.add_rolls()
 
 
     async def wpm(self, true_user):
@@ -697,6 +724,19 @@ class Bot:
         Args:
             characters (list): list of character infos.
         '''
+        num_chars = len(characters)
+        display_len = 5
+        if num_chars % 3 == 0 and (num_chars / 3) < 4:
+            display_len = 3
+        elif num_chars % 4 == 0 and (num_chars / 4) < 5:
+            display_len = 4
+        elif num_chars % 5 == 0 and (num_chars / 5) < 5:
+            display_len = 5
+        elif num_chars % 5 > 2:
+            display_len = 5
+        elif num_chars % 4 > 1:
+            display_len = 4
+
         char_uhtml = '<tr>'
         for i, char in enumerate(characters):
             img_uhtml = ''
@@ -719,7 +759,7 @@ class Bot:
                            f'{char[0]}</a></td>')
 
             # Maximum of 3 characters per line
-            if i % 3 == 2:
+            if i % display_len == (display_len - 1):
                 char_uhtml += '</tr><tr>'
 
         char_uhtml += '</tr>'
@@ -752,17 +792,17 @@ class Bot:
         print(today)
         print(curr_year)
         if today == 'February 28' and (curr_year % 4 != 0 or curr_year % 100 == 0):
-            tomorrow_uhtml = '<tr><td colspan=6><b><center>(Feb 29)</center></b></td></tr>'
+            tomorrow_uhtml = '<tr><td colspan=10><b><center>(Feb 29)</center></b></td></tr>'
             tomorrow_uhtml += self.birthday_chars_to_uhtml(self.birthdays['February 29'])
 
         uhtml = ('<center><table style=\'border:3px solid #0088cc; border-spacing:0px; '
                  'border-radius:10px; background-image:url(https://i.imgur.com/l8iJKoX.png); '
                  'background-size:cover\'>'
-                 '<thead><tr><th colspan=6 style=\'padding:5px 5px 10px 5px\'>'
+                 '<thead><tr><th colspan=10 style=\'padding:5px 5px 10px 5px\'>'
                 f'Today\'s Birthdays ({short_today})</th></tr></thead><tbody>'
                 f'{char_uhtml}'
                 f'{tomorrow_uhtml}'
-                 '<tr><td colspan=6 style=\'text-align:right; font-size:8px; '
+                 '<tr><td colspan=10 style=\'text-align:right; font-size:8px; '
                  'padding: 0px 5px 5px 0px\'><a href=\'https://forms.gle/qfKSeyNtpueTBACn7\' '
                  'style=\'color:inherit\'>Submit characters here</a></td></tr>'
                  '</tbody></table></center>')
@@ -937,6 +977,8 @@ class Bot:
                         self.banlists[list_name].append(to_bl)
                         with open(const.BANLISTFILE, 'w') as f:
                             json.dump(self.banlists, f, indent=4)
+                        
+                msg = f'Added {to_bl} to {list_name} banlist.'
 
         elif command[0] == 'bl_remove':
             if len(command) != 3:
@@ -1119,7 +1161,7 @@ class Bot:
                 asyncio.create_task(set_mal_user(self.outgoing.put, true_caller, command[1], ctx),
                                     name='setmal-{}'.format(true_caller))
             else:
-                msg = 'Please enter an MAL username.'
+                msg = 'Usage: ]addmal [MYANIMELIST USERNAME]'
         
         elif command[0] == 'mal' and (room in self.mal_rooms or pm):
             args = None
@@ -1286,7 +1328,12 @@ class Bot:
                 args = None
                 if len(command) > 2:
                     args = trivia_arg_parser(' '.join(command[2:]))
-                
+
+                if args:
+                    if args.quizbowl and room == const.LEAGUE_ROOM:
+                        args.quizbowl = None
+                    if not args.quizbowl and room == const.SCHOL_ROOM:
+                        args.quizbowl = True
                 if not args:
                     msg = 'Invalid parameters. Trivia not started.'
                 elif args.quizbowl:
@@ -1359,7 +1406,7 @@ class Bot:
                 answer_check = ''
                 # Anime/manga/video game titles have a lot of different colloquial names.
                 # Those rooms are more flexible in accepting answers.
-                if room == const.ANIME_ROOM or room == const.VG_ROOM:
+                if room == const.ANIME_ROOM or room == const.VG_ROOM or room == const.SCHOL_ROOM:
                     answer_check = check_answer(''.join(command[1:]), trivia_game.answers)
                 else:
                     for answer in trivia_game.answers:
@@ -1382,7 +1429,58 @@ class Bot:
             new_command = ']trivia ' + ' '.join(command)
             await self.command_center(room, caller, new_command)
             return
-        
+
+        # Gachas
+        elif command[0] == 'gacha_join' and (pm or room == const.GACHA_ROOM):
+            if self.gachaman.player_check(true_caller):
+                msg = f'{caller} is already playing!'
+            else:
+                self.gachaman.player_add(true_caller)
+                msg = f'{caller} can now use gacha commands.'
+
+        elif ((command[0] == 'gacha_box' or command[0] == 'box')
+                and (room == const.GACHA_ROOM or pm)):
+            if not self.gachaman.player_check(true_caller):
+                msg = 'You don\'t have an account! Use ]gacha_join first'
+            else:
+                msg = self.gachaman.player_box(true_caller)
+
+        elif command[0] == 'gprofile' and room == const.GACHA_ROOM:
+            if not self.gachaman.player_check(true_caller):
+                msg = 'You don\'t have an account! Use ]gacha_join first'
+            else:
+                pass
+                #msg = self.gachaman.player_info(true_caller)
+
+        elif ((command[0] == 'gacha_roll' or command[0] == 'roll')
+                and room == const.GACHA_ROOM):
+            gachas_str = '; '.join(const.GACHAS)
+
+            if len(command) < 2 or len(command) > 3:
+                msg = ('Please roll using ]gacha_roll GACHA [num_rolls]. '
+                      f'The current list of GACHAs is: {gachas_str}')
+            elif command[1] not in const.GACHAS:
+                msg = f'Invalid gacha. The current list of gachas is: {gachas_str}'
+            elif len(command) == 3 and not command[2].isnumeric():
+                msg = f'Please enter a valid number (integer from 1-10).'
+            elif len(command) == 3 and (int(command[2]) < 1 or int(command[2]) > 10):
+                msg = f'Please enter a valid number (integer from 1-10).'
+            elif not self.gachaman.player_check(true_caller):
+                msg = 'You don\'t have an account! Use ]gacha_join first'  
+
+            else:
+                num_rolls = 1
+                if len(command) == 3:
+                    num_rolls = int(command[2])
+
+                pulls = self.gachaman.roll(true_caller, command[1], num_rolls=num_rolls)
+                if not pulls:
+                    user_rolls = self.gachaman.player_info(true_caller).roll_currency
+                    msg = f'Not enough rolls in your account: {caller} has {user_rolls} rolls.'
+                else:
+                    msg = f'/adduhtml {true_caller}-rolls, {pulls}'
+
+        # Self maintenance
         elif command[0] == 'ladder_toggle' and true_caller == const.OWNER:
             self.allow_laddering = not self.allow_laddering
             # Refreshes updatesearch as well.

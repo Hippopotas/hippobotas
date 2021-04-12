@@ -4,20 +4,19 @@ import json
 import pandas as pd
 import random
 
-from common.constants import ANIME_ROOM
-from common.constants import JIKAN_API, IMG_NOT_FOUND
-from common.constants import ANIME_TYPES, MANGA_TYPES, BANLISTFILE
+import common.constants as const
+
 from common.utils import find_true_name, gen_uhtml_img_code
 
 async def check_mal_nsfw(medium, series):
-    bl = json.load(open(BANLISTFILE))
+    bl = json.load(open(const.BANLISTFILE))
     if series in bl[medium]:
         return True
 
     async with aiohttp.ClientSession(trust_env=True) as session:
         retry = 0
         while retry < 3:
-            async with session.get(JIKAN_API + '{}/{}'.format(medium, series)) as r:
+            async with session.get(const.JIKAN_API + '{}/{}'.format(medium, series)) as r:
                 resp = await r.text()
                 series_data = json.loads(resp)
 
@@ -37,7 +36,7 @@ async def get_mal_user(username, retries=5):
     async with aiohttp.ClientSession(trust_env=True) as session:
         retry = 0
         while retry < retries:
-            async with session.get(JIKAN_API + 'user/{}'.format(username)) as r:
+            async with session.get(const.JIKAN_API + 'user/{}'.format(username)) as r:
                 resp = await r.text()
                 userdata = json.loads(resp)
 
@@ -60,7 +59,7 @@ async def set_mal_user(putter, ps_user, mal_user, ctx):
 
     userdata = await get_mal_user(mal_user)
     if userdata:
-        mal_list = pd.read_csv('mal.txt')
+        mal_list = pd.read_csv(const.MALFILE)
 
         existing_user = mal_list[mal_list['user'] == ps_user]
         if existing_user.empty:
@@ -69,7 +68,7 @@ async def set_mal_user(putter, ps_user, mal_user, ctx):
         else:
             mal_list.loc[mal_list['user'] == ps_user, 'mal'] = mal_user
         
-        mal_list.to_csv('mal.txt', index=False)
+        mal_list.to_csv(const.MALFILE, index=False)
         await putter(f'{prefix} Set {ps_user}\'s MAL to {mal_user}.')
     else:
         await putter(f'{prefix} Could not find MAL user {mal_user}.')
@@ -88,7 +87,7 @@ async def show_mal_user(putter, username, true_caller, ctx):
             return
 
         # Set image
-        img_url = IMG_NOT_FOUND
+        img_url = const.IMG_NOT_FOUND
         if userdata['image_url']:
             img_url = userdata['image_url']
         img_uhtml = gen_uhtml_img_code(img_url, height_resize=100, width_resize=125)
@@ -98,7 +97,7 @@ async def show_mal_user(putter, username, true_caller, ctx):
         for medium in top_series_uhtml:
             top_series = 'None'
             top_series_url = ''
-            top_series_img = IMG_NOT_FOUND
+            top_series_img = const.IMG_NOT_FOUND
 
             fav_series = userdata['favorites'][medium]
             while fav_series:
@@ -196,7 +195,7 @@ async def mal_user_rand_series(putter, username, caller, media, ctx):
         rand_series = random.choice(all_series_list)
 
         medium = 'manga'
-        if find_true_name(rand_series['type']) in ANIME_TYPES:
+        if find_true_name(rand_series['type']) in const.ANIME_TYPES:
             medium = 'anime'
         is_nsfw = await check_mal_nsfw(medium, rand_series['mal_id'])
         if is_nsfw:

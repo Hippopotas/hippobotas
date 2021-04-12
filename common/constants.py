@@ -7,6 +7,7 @@ ANIME_ROOM = 'animeandmanga'
 LEAGUE_ROOM = 'leagueoflegends'
 VG_ROOM = 'videogames'
 PEARY_ROOM = 'bikinibottom'
+GACHA_ROOM = 'gacha'
 SCHOL_ROOM = 'scholastic'
 
 TIMER_USER = 'T*'
@@ -17,6 +18,7 @@ DDRAGON_IMG = 'http://ddragon.leagueoflegends.com/cdn/11.6.1/img/'
 DDRAGON_SPL = 'http://ddragon.leagueoflegends.com/cdn/img/champion/loading/'
 STEAM_API = 'http://api.steampowered.com/'
 IGDB_API = 'https://api.igdb.com/v4/'
+PASTIE_API = 'https://pastie.io/documents'
 
 BANLISTFILE = os.path.join(BASE_DIR, 'data/banlist.json')
 BIRTHDAYFILE = os.path.join(BASE_DIR, 'data/birthdays.json')
@@ -29,6 +31,10 @@ WPMFILE = os.path.join(BASE_DIR, 'data/wpm.txt')
 MALFILE = os.path.join(BASE_DIR, 'data/mal.txt')
 STEAMFILE = os.path.join(BASE_DIR, 'data/steam.txt')
 
+GACHAINFOFILE = os.path.join(BASE_DIR, 'data/gacha/gacha.json')
+GACHADBFILE = os.path.join(BASE_DIR, 'data/gacha/gachas.db')
+GPLAYERDBFILE = os.path.join(BASE_DIR, 'data/gacha/players.db')
+
 MAL_URL = 'https://myanimelist.net/'
 MAL_IMG_URL = 'https://cdn.myanimelist.net/images/'
 
@@ -38,6 +44,8 @@ PLEB_URL = 'https://i.imgur.com/c9nyFqJ.png'
 METRONOME_BATTLE = 'gen8metronomebattle'
 
 OWNER = 'hippopotas'
+
+GACHAS = ['fgo']
 
 LEAGUE_CATS = ['skins', 'spells', 'items']
 

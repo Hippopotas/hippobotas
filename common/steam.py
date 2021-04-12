@@ -6,7 +6,7 @@ import pandas as pd
 import random
 import re
 
-from common.constants import IMG_NOT_FOUND, STEAM_API
+from common.constants import IMG_NOT_FOUND, STEAM_API, STEAMFILE
 from common.utils import find_true_name, gen_uhtml_img_code
 
 async def get_steam_user(username, retries=2):
@@ -60,7 +60,7 @@ async def set_steam_user(putter, ps_user, steam_user, ctx):
     if userdata:
         persona_name = userdata['personaname']
         id64 = userdata['steamid']
-        steam_list = pd.read_csv('steam.txt')
+        steam_list = pd.read_csv(STEAMFILE)
 
         existing_user = steam_list[steam_list['user'] == ps_user]
         if existing_user.empty:
@@ -69,7 +69,7 @@ async def set_steam_user(putter, ps_user, steam_user, ctx):
         else:
             steam_list.loc[steam_list['user'] == ps_user, 'steam'] = id64
 
-        steam_list.to_csv('steam.txt', index=False)
+        steam_list.to_csv(STEAMFILE, index=False)
         await putter(f'{prefix} Set {ps_user}\'s Steam to {persona_name}.')
     else:
         await putter(f'{prefix} Could not find steam user {steam_user}. Make sure to use the ID in the URL!')
