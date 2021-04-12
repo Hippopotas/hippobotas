@@ -8,8 +8,11 @@ import re
 import requests
 import time
 
+from peewee import fn
+
 import common.constants as const
 
+from common.qbowl_db import QuestionTable
 from common.utils import gen_uhtml_img_code
 
 BASE_DIFF = 3
@@ -175,7 +178,19 @@ class QuestionList:
             elif self.room == const.LEAGUE_ROOM:
                 for _ in range(n):
                     await self.gen_lol_question(session)
-            
+
+            elif self.room == const.SCHOL_ROOM:
+                num_tossups = (QuestionTable.select()
+                                            .where(QuestionTable.question_type == 't')
+                                            .count())
+                num_bonuses = (QuestionTable.select()
+                                            .where(QuestionTable.question_type == 'b')
+                                            .count()) / 3
+
+                q_types = random.choices(['t', 'b'], weights=[num_tossups, num_bonuses], k=n)
+                for qt in q_types:
+                    await self.gen_schol_qbowl_question(qt)
+
             elif self.room == const.VG_ROOM:
                 vg_database = json.load(open('data/vg_trivia.json'))
                 for _ in range(n):
@@ -489,6 +504,32 @@ class QuestionList:
                 img_url = gen_uhtml_img_code(self.check_for_jpg(img_url))
                 await self.questions.put(['/adduhtml {}, {}'.format(UHTML_NAME, img_url),
                                           [ability['name']]])
+
+    def gen_schol_base(self, q_type):
+        q_row = (QuestionTable.select()
+                              .where(QuestionTable.question_type == q_type)
+                              .order_by(fn.Random())
+                              .limit(1))[0]
+
+        while q_row.prev_b:
+            q_row = (QuestionTable.select()
+                                  .where(QuestionTable.qid == q_row.prev_b))[0]
+
+        return q_row
+
+    async def gen_schol_qbowl_question(self, q_type):
+        question = self.gen_schol_base(q_type)
+
+        while self.duplicate_check(question.qid):
+            question = self.gen_schol_base(q_type)
+
+        self.q_bases.append(question.qid)
+
+        await self.questions.put([question.question, json.loads(question.answer)])
+        while question.next_b:
+            question = (QuestionTable.select()
+                                     .where(QuestionTable.qid == question.next_b))[0]
+            await self.questions.put([question.question, json.loads(question.answer)])
 
     def gen_vg_base(self, vg_database):
         rank = -1

@@ -7,6 +7,7 @@ ANIME_ROOM = 'animeandmanga'
 LEAGUE_ROOM = 'leagueoflegends'
 VG_ROOM = 'videogames'
 PEARY_ROOM = 'bikinibottom'
+SCHOL_ROOM = 'scholastic'
 
 TIMER_USER = 'T*'
 
