@@ -16,8 +16,6 @@ from common.qbowl_db import QuestionTable
 from common.utils import gen_uhtml_img_code
 
 BASE_DIFF = 3
-AN_DIFF_SCALE = 400
-MA_DIFF_SCALE = 225
 VG_DIFF_SCALE = 300
 UHTML_NAME = 'trivia'
 PIC_SIZE = 225
@@ -105,8 +103,8 @@ class TriviaGame:
         self.active = True
         self.reset_scoreboard()
 
-        if diff > 15:
-            diff = 15
+        if diff > 10:
+            diff = 10
         if diff < 1:
             diff = 1
         self.questions.diff = diff
@@ -228,12 +226,8 @@ class QuestionList:
                 for c in self.categories:
                     if c in const.ANIME_GENRES:
                         genres['anime'].append(const.ANIME_GENRES[c])
-                        if len(anime_media) == 0:
-                            anime_media = [('anime', '')]
                     if c in const.MANGA_GENRES:
                         genres['manga'].append(const.MANGA_GENRES[c])
-                        if len(manga_media) == 0:
-                            manga_media = [('manga', '')]
 
             media = anime_media + manga_media
             if len(media) == 0:
@@ -255,24 +249,31 @@ class QuestionList:
             if self.excludecats:
                 genre_code = ','.join(map(str, genres[medium]))
 
+            genre = ''
+            if genre_code != '':
+                if medium == 'anime':
+                    for g in const.ANIME_GENRES:
+                        if const.ANIME_GENRES[g] == genre_code:
+                            genre = g
+                            break
+                elif medium == 'manga':
+                    for g in const.MANGA_GENRES:
+                        if const.MANGA_GENRES[g] == genre_code:
+                            genre = g
+                            break
+
             # Yes, it's backwards on jikan, idk.
             g_exclude = 1
             if self.excludecats:
                 g_exclude = 0
 
             rank = 0
-            diff_scale = 0
-            if medium == 'anime':
-                diff_scale = AN_DIFF_SCALE
-            elif medium == 'manga':
-                diff_scale = MA_DIFF_SCALE
+            max_rank = const.MAL_LAST_PAGES[medium][sub_medium][genre] * 50
+            diff_scale = max_rank // 11
 
-            while rank < 1:
+            while rank < 1 or rank > max_rank:
                 rank = int(random.gauss(diff_scale * (self.diff - 2),
                                         (diff_scale * self.diff) // 2))
-            # Adjust rank for smaller categories
-            if (sub_medium and sub_medium != 'anime' and sub_medium != 'manga') or genre_code:
-                rank = math.ceil(rank / 8)
 
             all_series = {}
             page = (rank - 1) // 50 + 1
@@ -283,6 +284,7 @@ class QuestionList:
             url = (f'{const.JIKAN_API}search/{medium}?q=&type={sub_medium}&genre={genre_code}&'
                    f'genre_exclude={g_exclude}&page=1&order_by={sort_method}&sort=desc')
 
+            print(url)
             async with session.get(url) as r:
                 resp = await r.text()
 
