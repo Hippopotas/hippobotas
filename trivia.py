@@ -161,10 +161,12 @@ class QuestionList:
         self.by_rating = False
         self.room = room
         self.q_bases = []
+        self.num_qs = 0
         self.questions = asyncio.Queue()
         self.series_exist = True
 
     async def gen_list(self, n, quizbowl=False):
+        self.num_qs = n
         async with aiohttp.ClientSession() as session:
             if self.room == const.ANIME_ROOM:
                 for _ in range(n):
@@ -269,11 +271,19 @@ class QuestionList:
 
             rank = 0
             max_rank = const.MAL_LAST_PAGES[medium][sub_medium][genre] * 50
-            diff_scale = max_rank // 11
+            if max_rank == 0:
+                self.series_exist = False
+                for task in asyncio.all_tasks():
+                    if task.get_name() == 'trivia-{}'.format(self.room):
+                        task.cancel()
+                        break
+
+            diff_scale = max(1.1, math.log(max_rank, 10))
+            std_dev_scale = max(10, diff_scale ** 2)
 
             while rank < 1 or rank > max_rank:
-                rank = int(random.gauss(diff_scale * (self.diff - 2),
-                                        (diff_scale * self.diff) // 2))
+                rank = int(random.gauss(max_rank // ((diff_scale) ** (10 - self.diff)),
+                                        (std_dev_scale * self.diff)))
 
             all_series = {}
             page = (rank - 1) // 50 + 1
