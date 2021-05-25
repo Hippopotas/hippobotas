@@ -530,7 +530,7 @@ class Bot:
             await self.outgoing.put(f'|/w {true_caller}, {msg}')
 
         # Emote calls from chat
-        elif parts[1] == 'c:' and parts[4][0] == ':' and parts[4][-1] == ':':
+        elif parts[1] == 'c:' and parts[4].count(':') >= 2:
             caller = parts[3]
             await self.emote_center(curr_room, caller, parts[4])
 
@@ -656,7 +656,7 @@ class Bot:
         await self.outgoing.put(f'{battle_id}|{action}')
 
 
-    async def emote_center(self, room, caller, emote):
+    async def emote_center(self, room, caller, line):
         '''
         Sends an emote if applicable.
 
@@ -665,13 +665,18 @@ class Bot:
             caller (str): User who invoked the emote
             emote (str): The emote being invoked
         '''
-        emote = emote[1:-1].lower()         # Strip out colons
+        if room not in self.room_emotes or not User.compare_ranks(caller[0], '+'):
+            return
 
-        if room in self.room_emotes and User.compare_ranks(caller[0], '+'):
+        # Find emote
+        possible_emotes = line.split(':')
+        for pe in possible_emotes:
+            emote = pe.lower()
             if emote in self.room_emotes[room]:
-                uhtml = gen_uhtml_img_code(self.room_emotes[room][emote], height_resize=50)
+                uhtml = gen_uhtml_img_code(self.room_emotes[room][emote], height_resize=50, alt=emote)
+
                 await self.outgoing.put(f'{room}|/adduhtml hippo-{emote}, {uhtml}')
-        return
+                return
 
 
     async def login(self, keyword):
