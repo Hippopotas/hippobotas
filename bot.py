@@ -123,7 +123,7 @@ def trivia_arg_parser(s):
     parser.add_argument('-d', '--diff', type=int, default=3)
     parser.add_argument('-q', '--quizbowl', action='store_true')
     parser.add_argument('-r', '--byrating', action='store_true')
-    parser.add_argument('-s', '--autoskip', type=int, default=20)
+    parser.add_argument('-s', '--autoskip', type=int, default=15)
     parser.add_argument('len', type=int)
 
     args = None
@@ -789,23 +789,27 @@ class Bot:
 
         tomorrow_uhtml = ''
         curr_year = datetime.datetime.today().year
-        print(today)
-        print(curr_year)
+
+        max_scroll = ''
+        if len(birthday_chars) > 15:
+            max_scroll = 'overflow-y: scroll; max-height: 250px'
+
         if today == 'February 28' and (curr_year % 4 != 0 or curr_year % 100 == 0):
             tomorrow_uhtml = '<tr><td colspan=10><b><center>(Feb 29)</center></b></td></tr>'
             tomorrow_uhtml += self.birthday_chars_to_uhtml(self.birthdays['February 29'])
 
-        uhtml = ('<center><table style=\'border:3px solid #0088cc; border-spacing:0px; '
-                 'border-radius:10px; background-image:url(https://i.imgur.com/l8iJKoX.png); '
-                 'background-size:cover\'>'
-                 '<thead><tr><th colspan=10 style=\'padding:5px 5px 10px 5px\'>'
-                f'Today\'s Birthdays ({short_today})</th></tr></thead><tbody>'
-                f'{char_uhtml}'
-                f'{tomorrow_uhtml}'
-                 '<tr><td colspan=10 style=\'text-align:right; font-size:8px; '
-                 'padding: 0px 5px 5px 0px\'><a href=\'https://forms.gle/qfKSeyNtpueTBACn7\' '
-                 'style=\'color:inherit\'>Submit characters here</a></td></tr>'
-                 '</tbody></table></center>')
+        uhtml = (f'<div style=\'{max_scroll}\'>'
+                  '<center><table style=\'border:3px solid #0088cc; border-spacing:0px; '
+                  'border-radius:10px; background-image:url(https://i.imgur.com/l8iJKoX.png); '
+                  'background-size:cover\'>'
+                  '<thead><tr><th colspan=10 style=\'padding:5px 5px 10px 5px\'>'
+                 f'Today\'s Birthdays ({short_today})</th></tr></thead><tbody>'
+                 f'{char_uhtml}'
+                 f'{tomorrow_uhtml}'
+                  '<tr><td colspan=10 style=\'text-align:right; font-size:8px; '
+                  'padding: 0px 5px 5px 0px\'><a href=\'https://forms.gle/qfKSeyNtpueTBACn7\' '
+                  'style=\'color:inherit\'>Submit characters here</a></td></tr>'
+                  '</tbody></table></center></div>')
 
         await self.outgoing.put(f'{ctx}|/adduhtml hippo-birthdays, {uhtml}')
 
@@ -922,7 +926,7 @@ class Bot:
             uhtml = gen_uhtml_img_code(const.PLEB_URL, height_resize=250)
             msg = f'/adduhtml hippo-pleb, {uhtml}'
 
-        elif command[0] == 'calendar':
+        elif command[0] == 'calendar' and User.compare_ranks(caller[0], '+'):
             curr_day = datetime.date.today()
             curr_day_str = curr_day.strftime('%B') + ' ' + str(curr_day.day)
             date_imgs = self.calendar[curr_day_str]
@@ -930,7 +934,7 @@ class Bot:
             uhtml = gen_uhtml_img_code(random.choice(date_imgs), height_resize=200)
             msg = f'/adduhtml hippo-calendar, {uhtml}'
         
-        elif command[0] == 'birthday' and not pm:
+        elif command[0] == 'birthday' and not pm and User.compare_ranks(caller[0], '+'):
             await self.send_birthday_text(automatic=False, ctx=room)
 
         # Banlists
@@ -1416,6 +1420,8 @@ class Bot:
                 if answer_check:
                     msg = f'{caller} wins.'
                     if true_caller == self.username:
+                        if '/uhtml' in ''.join(command):
+                            return
                         msg = 'Question skipped.'
                     else:
                         trivia_game.update_scores(true_caller)

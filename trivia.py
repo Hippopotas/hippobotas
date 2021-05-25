@@ -278,7 +278,7 @@ class QuestionList:
                         task.cancel()
                         break
 
-            diff_scale = max(1.1, math.log(max_rank, 10))
+            diff_scale = max(1.1, math.log(max_rank, 10) / 1.5)
             std_dev_scale = max(10, diff_scale ** 2)
 
             while rank < 1 or rank > max_rank:
@@ -294,7 +294,6 @@ class QuestionList:
             url = (f'{const.JIKAN_API}search/{medium}?q=&type={sub_medium}&genre={genre_code}&'
                    f'genre_exclude={g_exclude}&page=1&order_by={sort_method}&sort=desc')
 
-            print(url)
             async with session.get(url) as r:
                 resp = await r.text()
 
