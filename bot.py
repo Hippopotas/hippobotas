@@ -221,8 +221,9 @@ class Bot:
         self.outgoing = asyncio.Queue()
 
         self.roomlist = {}
-        self.banlists = json.load(open(const.BANLISTFILE))
 
+        self.topics = json.load(open(const.TOPICFILE))
+        self.banlists = json.load(open(const.BANLISTFILE))
         self.room_emotes = json.load(open(const.EMOTEFILE))
 
         self.battles = {}
@@ -943,6 +944,24 @@ class Bot:
         
         elif command[0] == 'birthday' and not pm and User.compare_ranks(caller[0], '+'):
             await self.send_birthday_text(automatic=False, ctx=room)
+
+        elif command[0] == 'topic' and not pm:
+            if room not in self.topics:
+                self.topics[room] = {}
+            
+            if 'current' not in self.topics[room]:
+                self.topics[room]['current'] = ''
+            
+            if len(command) > 1 and User.compare_ranks(caller[0], '%'):
+                self.topics[room]['current'] = ' '.join(command[1:])
+
+            curr_topic = self.topics[room]['current']
+            if not curr_topic:
+                msg = '/announce No topic right now! Feel free to set one.'
+            else:
+                msg = f'/announce We\'re currently talking about: {curr_topic}'
+
+            json.dump(self.topics, open(const.TOPICFILE, 'w'), indent=4)
 
         # Banlists
         elif command[0] == 'bl_add':

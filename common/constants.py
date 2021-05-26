@@ -31,6 +31,7 @@ CALENDARFILE = os.path.join(BASE_DIR, 'data/calendar.json')
 EMOTEFILE = os.path.join(BASE_DIR, 'data/emotes.json')
 SENTENCEFILE = os.path.join(BASE_DIR, 'data/sentences.txt')
 SUCKFILE = os.path.join(BASE_DIR, 'data/suck.txt')
+TOPICFILE = os.path.join(BASE_DIR, 'data/topics.json')
 WPMFILE = os.path.join(BASE_DIR, 'data/wpm.txt')
 
 MALFILE = os.path.join(BASE_DIR, 'data/mal.txt')
