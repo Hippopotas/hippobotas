@@ -21,6 +21,7 @@ from battle import Battle
 from gacha import GachaManager
 from common.mal import set_mal_user, show_mal_user, mal_user_rand_series
 from common.steam import set_steam_user, show_steam_user, steam_user_rand_series
+from common.tcg import display_mtg_card, display_ptcg_card, display_ygo_card
 from common.utils import find_true_name, gen_uhtml_img_code, trivia_leaderboard_msg
 from room import Room
 from user import User
@@ -28,6 +29,7 @@ from user import User
 PS_SOCKET = 'ws://sim.smogon.com:8000/showdown/websocket'
 JOINLIST = [const.ANIME_ROOM,
             const.LEAGUE_ROOM,
+            const.TCG_ROOM,
             const.VG_ROOM,
             const.PEARY_ROOM,
             const.GACHA_ROOM,
@@ -1160,6 +1162,19 @@ class Bot:
         # animeandmanga
         elif command[0] == 'jibun' and room == const.ANIME_ROOM:
             msg = '/announce JIBUN WOOOOOOOOOO'
+
+        # tcg commands
+        elif command[0] == 'mtg' and room == const.TCG_ROOM and User.compare_ranks(caller[0], '+'):
+            query = ' '.join(command[1:])
+            asyncio.create_task(display_mtg_card(self.outgoing.put, query))
+
+        elif command[0] == 'ptcg' and room == const.TCG_ROOM and User.compare_ranks(caller[0], '+'):
+            query = ' '.join(command[1:])
+            asyncio.create_task(display_ptcg_card(self.outgoing.put, query))
+
+        elif command[0] == 'ygo' and room == const.TCG_ROOM and User.compare_ranks(caller[0], '+'):
+            query = ' '.join(command[1:])
+            asyncio.create_task(display_ygo_card(self.outgoing.put, query))
 
         # MAL
         elif command[0] == 'addmal' and (room in self.mal_rooms or pm):

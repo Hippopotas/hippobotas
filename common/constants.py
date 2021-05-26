@@ -4,11 +4,12 @@ import os
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
 
 ANIME_ROOM = 'animeandmanga'
+GACHA_ROOM = 'gacha'
 LEAGUE_ROOM = 'leagueoflegends'
+SCHOL_ROOM = 'scholastic'
+TCG_ROOM = 'tcgtabletop'
 VG_ROOM = 'videogames'
 PEARY_ROOM = 'bikinibottom'
-GACHA_ROOM = 'gacha'
-SCHOL_ROOM = 'scholastic'
 
 TIMER_USER = 'T*'
 
@@ -19,6 +20,10 @@ DDRAGON_SPL = 'http://ddragon.leagueoflegends.com/cdn/img/champion/loading/'
 STEAM_API = 'http://api.steampowered.com/'
 IGDB_API = 'https://api.igdb.com/v4/'
 PASTIE_API = 'https://pastie.io/documents'
+
+MTG_API = 'https://api.scryfall.com/cards/search?q='
+PTCG_API = 'https://api.pokemontcg.io/v2/cards?q=name:'
+YGO_API = 'https://db.ygoprodeck.com/api/v7/cardinfo.php?fname='
 
 BANLISTFILE = os.path.join(BASE_DIR, 'data/banlist.json')
 BIRTHDAYFILE = os.path.join(BASE_DIR, 'data/birthdays.json')
