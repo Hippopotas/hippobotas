@@ -14,6 +14,7 @@ PEARY_ROOM = 'bikinibottom'
 TIMER_USER = 'T*'
 
 JIKAN_API = 'https://api.jikan.moe/v3/'
+JIKAN_SEARCH_API = 'https://api.jikan.moe/v3/search/'
 DDRAGON_API = 'http://ddragon.leagueoflegends.com/cdn/11.6.1/data/en_US/'
 DDRAGON_IMG = 'http://ddragon.leagueoflegends.com/cdn/11.6.1/img/'
 DDRAGON_SPL = 'http://ddragon.leagueoflegends.com/cdn/img/champion/loading/'

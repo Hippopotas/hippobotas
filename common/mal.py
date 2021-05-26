@@ -210,3 +210,50 @@ async def mal_user_rand_series(putter, username, caller, media, ctx):
 
     msg = f'{prefix} {caller} rolled {rand_title}'
     await putter(msg)
+
+
+async def mal_search(putter, ctx, medium, query):
+    msg_body = ''
+    results = []
+    async with aiohttp.ClientSession(trust_env=True) as session:
+        async with session.get(const.JIKAN_SEARCH_API + f'{medium}?q={query}') as r:
+            resp = await r.json()
+
+            if r.status != 200:
+                err_msg = resp.get('message', '[No error message]')
+                msg_body = f'{r.status} - {err_msg}'
+
+            results = resp.get('results', [])
+
+    if results:
+        for r in results:
+            is_nsfw = await check_mal_nsfw(medium, r['mal_id'])
+            if not is_nsfw:
+                name = r['title'] if 'title' in r else r['name']
+                img_uhtml = gen_uhtml_img_code(r['image_url'], height_resize=100)
+
+                ongoing = 'Ongoing' if r.get('airing', r.get('publishing', False)) else 'Completed'
+                ongoing_color = '#E0DD24' if ongoing == 'Ongoing' else '#00FF00'
+                parts = 'Episodes' if 'episodes' in r else 'Chapters'
+
+                text_box = (f"""<td style='color:{ongoing_color}; font-size:10px; padding-top:5px'>{ongoing}</td>"""
+                            f"""<td style='color:#555; font-size:10px; padding-top:5px'>{parts}: {r[parts.lower()]}</td>"""
+                            f"""<td style='color:#555; font-size:10px; padding-top:5px'>Score: {r['score']}</td></tr>"""
+                            f"""<tr><td colspan=3 style='width:300px; padding:5px'>{r['synopsis']}</td>""")
+
+                uhtml = ('<table style=\'border:3px solid #0088cc; border-spacing:0px; border-radius:10px; '
+                         'background-image:url(https://i.imgur.com/l8iJKoX.png); background-size:cover\'>'
+                         '<thead><tr><th colspan=4 width=96 style=\'font-size:14px; border-bottom:3px solid #0088cc; padding:5px\'>'
+                        f"""<a href='{r['url']}' style='color:#8311a6'>{name}</a></th></tr>"""
+                         '<tr style=\'text-align:center\'>'
+                        f"""<td rowspan=2 style='padding:5px'>{img_uhtml}</td>"""
+                        f'{text_box}</tr></table>')
+                msg_body = f'/adduhtml hippo{medium}, {uhtml}'
+                break
+
+            await asyncio.sleep(0.2)
+        else:
+            msg_body = 'No valid series found.'
+
+    msg = f'{ctx}|{msg_body}'
+    await putter(msg)

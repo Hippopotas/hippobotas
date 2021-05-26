@@ -19,7 +19,7 @@ import common.constants as const
 
 from battle import Battle
 from gacha import GachaManager
-from common.mal import set_mal_user, show_mal_user, mal_user_rand_series
+from common.mal import set_mal_user, show_mal_user, mal_user_rand_series, mal_search
 from common.steam import set_steam_user, show_steam_user, steam_user_rand_series
 from common.tcg import display_mtg_card, display_ptcg_card, display_ygo_card
 from common.utils import find_true_name, gen_uhtml_img_code, trivia_leaderboard_msg
@@ -879,11 +879,11 @@ class Bot:
             rd_str = rd_str[:-2]
 
         uhtml = (f'/adduhtml {name}-gameinfo, <table style=\'border:3px solid #858585; '
-                'border-spacing:0px; border-radius:10px; background-image:'
-                'url(\'https://i.imgur.com/c68ilQW.png\'); background-size:cover\'><thead><tr>'
-                '<th width=96 style=\'font-size:14px; padding:5px\'>'
+                 'border-spacing:0px; border-radius:10px; background-image:'
+                 'url(\'https://i.imgur.com/c68ilQW.png\'); background-size:cover\'><thead><tr>'
+                 '<th width=96 style=\'font-size:14px; padding:5px\'>'
                 f'<a href=\'{url}\' style=\'color:#FFF\'>{name}</a></th>'
-                '<th align=left style=\'font-weight:normal; color:#858585; padding-top:5px\'>'
+                 '<th align=left style=\'font-weight:normal; color:#858585; padding-top:5px\'>'
                 f'{rd_str}</th></tr></thead><tbody><tr><td style=\'padding:5px\'>'
                 f'<center><img src=\'{cover}\' width=80 height=80></center>'
                  '</td><td style=\'vertical-align:top; width:400px\'>'
@@ -1181,6 +1181,16 @@ class Bot:
         # animeandmanga
         elif command[0] == 'jibun' and room == const.ANIME_ROOM:
             msg = '/announce JIBUN WOOOOOOOOOO'
+
+        elif command[0] == 'anime' and room == const.ANIME_ROOM and User.compare_ranks(caller[0], '+'):
+            if len(command) > 1:
+                query = ' '.join(command[1:])
+                asyncio.create_task(mal_search(self.outgoing.put, const.ANIME_ROOM, 'anime', query))
+
+        elif command[0] == 'manga' and room == const.ANIME_ROOM and User.compare_ranks(caller[0], '+'):
+            if len(command) > 1:
+                query = ' '.join(command[1:])
+                asyncio.create_task(mal_search(self.outgoing.put, const.ANIME_ROOM, 'manga', query))
 
         # tcg commands
         elif command[0] == 'mtg' and room == const.TCG_ROOM and User.compare_ranks(caller[0], '+'):
