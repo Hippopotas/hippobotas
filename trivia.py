@@ -13,7 +13,7 @@ from peewee import fn
 import common.constants as const
 
 from common.qbowl_db import QuestionTable
-from common.utils import gen_uhtml_img_code
+from common.utils import find_true_name, gen_uhtml_img_code
 
 BASE_DIFF = 3
 VG_DIFF_SCALE = 300
@@ -99,7 +99,7 @@ class TriviaGame:
             self.scoreboard = timer
 
     async def start(self, n=10, diff=BASE_DIFF, categories=['all'],
-                    excludecats=False, by_rating=False, quizbowl=False):
+                    excludecats=False, by_rating=False, quizbowl=False, is_dex=False):
         self.active = True
         self.reset_scoreboard()
 
@@ -112,7 +112,7 @@ class TriviaGame:
         self.questions.excludecats = excludecats
         self.questions.by_rating = by_rating
 
-        asyncio.create_task(self.questions.gen_list(n=n, quizbowl=quizbowl),
+        asyncio.create_task(self.questions.gen_list(n=n, quizbowl=quizbowl, is_dex=is_dex),
                             name='tquestions-{}'.format(self.room))
 
     def update_scores(self, user):
@@ -165,12 +165,14 @@ class QuestionList:
         self.questions = asyncio.Queue()
         self.series_exist = True
 
-    async def gen_list(self, n, quizbowl=False):
+    async def gen_list(self, n, quizbowl=False, is_dex=False):
         self.num_qs = n
         async with aiohttp.ClientSession() as session:
             if self.room == const.ANIME_ROOM:
                 for _ in range(n):
-                    if quizbowl:
+                    if is_dex:
+                        await self.gen_mangadex_question(session)
+                    elif quizbowl:
                         await self.gen_am_qbowl_question(session)
                     else:
                         await self.gen_am_question(session)
@@ -430,6 +432,49 @@ class QuestionList:
             question = censor_quizbowl(title, question)
 
         await self.questions.put([question, base['answers']])
+
+    async def gen_mangadex_question(self, session):
+        series_id = ''
+        cover_id = ''
+        answers = []
+        while not series_id:
+            await asyncio.sleep(0.2)
+            async with session.get(f'{const.DEX_API}manga/random') as r:
+                rand_series = await r.json()
+
+                if r.status != 200:
+                    await asyncio.sleep(3)
+                    continue
+            
+                series_info = rand_series['data']
+                if series_info['attributes']['contentRating'] != 'safe':
+                    continue
+
+                skip = False
+                for tag in series_info['tags']:
+                    if tag['attributes']['name'] == 'Doujinshi':
+                        skip = True
+                        break
+                if skip:
+                    continue
+
+                if not self.duplicate_check(series_info['id']):
+                    series_id = series_info['id']
+
+                    answers = [series_info['attributes']['title']['en']]
+                    for title in series_info['attributes']['altTitles']:
+                        if len(find_true_name(title['en'])) > 0:
+                            answers.append(title['en'])
+
+        async with session.get(f'{const.DEX_API}cover', params={'manga[]': [series_id]}) as r:
+            covers = await r.json()
+
+            cover_info = random.choice(covers['results'])
+            cover_id = cover_info['data']['attributes']['fileName']
+
+        img_url = f'https://uploads.mangadex.org/covers/{series_id}/{cover_id}.256.jpg'
+        img_uhtml = gen_uhtml_img_code(img_url, height_resize=PIC_SIZE)
+        await self.questions.put(['/adduhtml {}, {}'.format(UHTML_NAME, img_uhtml), answers])
 
     async def gen_lol_base(self, session, data):
         base = {}

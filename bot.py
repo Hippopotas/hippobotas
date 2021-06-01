@@ -132,7 +132,7 @@ def trivia_arg_parser(s):
     try:
         args = parser.parse_args(shlex.split(s))
 
-        all_categories = ['all'] + const.ANIME_TYPES + const.MANGA_TYPES + \
+        all_categories = ['all', 'mangadex'] + const.ANIME_TYPES + const.MANGA_TYPES + \
                          list(const.ANIME_GENRES.keys()) + list(const.MANGA_GENRES.keys()) + \
                          const.LEAGUE_CATS
         fixed_categories = []

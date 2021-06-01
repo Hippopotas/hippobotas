@@ -248,7 +248,7 @@ async def mal_search(putter, ctx, medium, query):
                          '<tr style=\'text-align:center\'>'
                         f"""<td rowspan=2 style='padding:5px'>{img_uhtml}</td>"""
                         f'{text_box}</tr></table>')
-                msg_body = f'/adduhtml hippo{medium}, {uhtml}'
+                msg_body = f"""/adduhtml hippo{medium}{r['mal_id']}, {uhtml}"""
                 break
 
             await asyncio.sleep(0.2)

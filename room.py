@@ -33,8 +33,10 @@ class Room:
             await putter(self.roomname + '|There is already a running trivia!')
             return
 
+        is_dex = True if 'mangadex' in categories else False
+
         try:
-            await self.trivia.start(n, diff, categories, excludecats, by_rating)
+            await self.trivia.start(n, diff, categories, excludecats, by_rating, is_dex=is_dex)
 
             for _ in range(n):
                 await asyncio.sleep(5)
