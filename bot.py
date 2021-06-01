@@ -457,7 +457,15 @@ class Bot:
 
         # Sanitation
         if parts[1] == 'c:' or parts[1] == 'pm':
-            parts = parts[0:4] + ['|'.join(parts[4:])]
+            chat_msg = '|'.join(parts[4:])
+            if chat_msg.startswith('.motd') and find_true_name(parts[3]) == 'koakuma':
+                chat_msg = chat_msg.replace('.motd', ']topic', 1)
+            parts = parts[0:4] + [chat_msg]
+
+        # Emote calls from chat
+        if parts[1] == 'c:' and parts[4].count(':') >= 2:
+            caller = parts[3]
+            asyncio.create_task(self.emote_center(curr_room, caller, parts[4]))
 
         # Login
         if parts[1] == 'challstr':
@@ -531,11 +539,6 @@ class Bot:
 
             self.wpms.to_csv(const.WPMFILE)
             await self.outgoing.put(f'|/w {true_caller}, {msg}')
-
-        # Emote calls from chat
-        elif parts[1] == 'c:' and parts[4].count(':') >= 2:
-            caller = parts[3]
-            await self.emote_center(curr_room, caller, parts[4])
 
         # Function calls from chat
         elif (parts[1] == 'c:' or parts[1] == 'pm') and parts[4][0] == ']':
@@ -951,7 +954,7 @@ class Bot:
             
             if 'current' not in self.topics[room]:
                 self.topics[room]['current'] = ''
-            
+
             if len(command) > 1 and User.compare_ranks(caller[0], '%'):
                 self.topics[room]['current'] = ' '.join(command[1:])
 
@@ -959,7 +962,7 @@ class Bot:
             if not curr_topic:
                 msg = '/announce No topic right now! Feel free to set one.'
             else:
-                msg = f'/announce We\'re currently talking about: {curr_topic}'
+                msg = f'/announce {curr_topic}'
 
             json.dump(self.topics, open(const.TOPICFILE, 'w'), indent=4)
 
