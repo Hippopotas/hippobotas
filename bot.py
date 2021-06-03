@@ -278,9 +278,20 @@ class Bot:
 
         Args:
         '''
+        asyncio.create_task(self.ping_connect(), name='ping-connect')
         asyncio.create_task(self.birthday_repeater(), name='birthdays')
         asyncio.create_task(self.gacha_repeater(), name='gacha-repeat')
-    
+
+
+    async def ping_connect(self):
+        '''
+        Pings Showdown to check that messages are still flowing.
+
+        Args:
+        '''
+        await asyncio.sleep(30)
+        await self.outgoing.put(f'|/w {self.username}, ping')
+
 
     async def birthday_repeater(self):
         '''
