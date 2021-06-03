@@ -34,7 +34,7 @@ PLAYER_DB = SqliteDatabase(const.GPLAYERDBFILE)
 
 class PlayerAccInfoTable(Model):
     username = CharField(primary_key=True)
-    roll_currency = IntegerField(default=10000)
+    roll_currency = IntegerField(default=100)
     level_currency = IntegerField(default=10000)
     reroll_currency = IntegerField(default=0)
 
@@ -47,6 +47,7 @@ class PlayerBoxTable(Model):
     gacha = CharField()
     unit_id = FloatField()
     name = CharField()
+    unit_url = CharField()
     pv_img = CharField()
     full_img = CharField()
     unit_level = IntegerField(default=1)

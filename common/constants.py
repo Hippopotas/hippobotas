@@ -47,6 +47,7 @@ MAL_URL = 'https://myanimelist.net/'
 MAL_IMG_URL = 'https://cdn.myanimelist.net/images/'
 
 IMG_NOT_FOUND = 'https://i.imgur.com/Mlw966x.png'
+BLANK_IMG = 'https://i.imgur.com/skY68qe.png'
 PLEB_URL = 'https://i.imgur.com/c9nyFqJ.png'
 
 METRONOME_BATTLE = 'gen8metronomebattle'

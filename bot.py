@@ -1535,7 +1535,7 @@ class Bot:
             elif len(command) == 3 and (int(command[2]) < 1 or int(command[2]) > 10):
                 msg = f'Please enter a valid number (integer from 1-10).'
             elif not self.gachaman.player_check(true_caller):
-                msg = 'You don\'t have an account! Use ]gacha_join first'  
+                msg = 'You don\'t have an account! Use ]gacha_join first.'  
 
             else:
                 num_rolls = 1
@@ -1548,6 +1548,65 @@ class Bot:
                     msg = f'Not enough rolls in your account: {caller} has {user_rolls} rolls.'
                 else:
                     msg = f'/adduhtml {true_caller}-rolls, {pulls}'
+
+        elif command[0] == 'fav' and pm:
+            if len(command) < 2:
+                return
+            if not self.gachaman.player_check(true_caller):
+                msg = 'You don\'t have an account! Use ]gacha_join first.'
+            cmd_args = ''.join(command[1:])
+            try:
+                unit_ids = [int(x) for x in cmd_args.split(',')]
+            except ValueError:
+                msg = 'All IDs must be whole numbers.'
+            else:
+                num_updates = self.gachaman.favorite(true_caller, unit_ids)
+                msg = f'Favorited {num_updates} units.'
+
+        elif command[0] == 'unfav' and pm:
+            if len(command) < 2:
+                return
+            if not self.gachaman.player_check(true_caller):
+                msg = 'You don\'t have an account! Use ]gacha_join first.'
+            cmd_args = ''.join(command[1:])
+            try:
+                unit_ids = [int(x) for x in cmd_args.split(',')]
+            except ValueError:
+                msg = 'All IDs must be whole numbers.'
+            else:
+                num_updates = self.gachaman.unfavorite(true_caller, unit_ids)
+                msg = f'Unfavorited {num_updates} units.'
+
+        elif command[0] == 'showcase' and pm:
+            if len(command) < 3:
+                return
+            if not self.gachaman.player_check(true_caller):
+                msg = 'You don\'t have an account! Use ]gacha_join first.'
+
+            try:
+                uid = int(re.sub('[^0-9]', '', command[1]))
+                place = int(re.sub('[^0-9]', '', command[2]))
+                if 0 > place or place > 5:
+                    raise Exception
+            except ValueError:
+                msg = 'Please enter whole number values as arguments.'
+            except Exception:
+                msg = 'Showcase slot must be somewhere from 1-5.'
+            updated = self.gachaman.showcase(true_caller, uid, place)
+            msg = f'Set {uid} to slot {place}.' if updated else 'Nothing happened.'
+
+        elif command[0] == 'unshowcase' and pm:
+            if len(command) < 2:
+                return
+            if not self.gachaman.player_check(true_caller):
+                msg = 'You don\'t have an account! Use ]gacha_join first.'
+
+            try:
+                uid = int(re.sub('[^0-9]', '', command[1]))
+            except ValueError:
+                msg = 'Please enter whole number values as arguments.'
+            updated = self.gachaman.unshowcase(true_caller, uid)
+            msg = f'Removed {uid} from showcase.' if updated else 'Nothing happened.'
 
         # Self maintenance
         elif command[0] == 'ladder_toggle' and true_caller == const.OWNER:

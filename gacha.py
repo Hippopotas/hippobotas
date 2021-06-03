@@ -47,17 +47,19 @@ def box_output(box):
         represents a user's owned units.
     """
     box_text = ''
-    header_text = monospace_table_row([('Name', 40),
+    header_text = monospace_table_row([('ID', 5),
+                                       ('Name', 40),
                                        ('Gacha', 5),
                                        ('Level', 7),
                                        ('Fav.', 4),
                                        ('Showcase', 8)])
-    header_text += '\n' + '-'*76
+    header_text += '\n' + '-'*85
     for u in box:
         fav = 'Yes' if u.favorited else 'No'
         showcase = 'Yes' if u.showcase else 'No'
 
-        box_text += monospace_table_row([(u.name, 40),
+        box_text += monospace_table_row([(u.id, 5),
+                                         (u.name, 40),
                                          (u.gacha.upper(), 5),
                                          (f'Lvl {u.unit_level}', 7),
                                          (fav, 4),
@@ -65,7 +67,7 @@ def box_output(box):
         box_text += '\n'
 
     if not box_text:
-        box_text = '<center><i>Currently empty...</i></center>'
+        box_text = 'Currently empty...'
 
     all_text = f'{header_text}\n{box_text}'
 
@@ -121,19 +123,39 @@ class GachaManager:
     def player_info(self, username):
         """ Returns player info. Assumes player exists. """
         q = PlayerAccInfoTable.select().where(PlayerAccInfoTable.username == username)
-        player = q[0]
+        return q[0]
 
+
+    def profile(self, username):
+        player = self.player_info(username)
         box = type(username, (PlayerBoxTable,), {})
+
+        showcases = box.select().where(box.showcase).order_by(box.showcase)
+        sc_infos = [(const.BLANK_IMG, '', '', 1)] * 5
+        for i, sc in enumerate(range(min(5, len(showcases)))):
+            sc_infos[i] = (sc.full_img, sc.name, sc.unit_url, sc.unit_level)
+
+        showcase_uhtml = ''
+        for i, info in enumerate(sc_infos):
+            img_height = 100 if i == 0 else 70
+            showcase_uhtml += ('<td style=\'padding:5px; border-right:3px '
+                              f'solid #858585\'><a href=\'{sc_infos[0][2]}\'>'
+                              f'{gen_uhtml_img_code(sc_infos[0][0], height_resize=img_height, alt=sc_infos[0][1])}'
+                               '</a></td>')
 
         uhtml = ('<table style=\'border:3px solid #858585; border-spacing:0px;'
                  'border-radius:10px; background-image:url(https://i.imgur.com/c68ilQW.png);'
                  'background-size:cover\'><thead><tr>'
-                 '<th width=96 ')
+                 '<th style=\'font-size:14px; padding:5px; border-right:3px '
+                f'solid #858585\'>{username}</th>'
+                 '<th colspan=2 align=left style=\'font-weight:normal; color:#858585; padding-left: 5px\'>'
+                f'Rolls: {player.roll_currency} | Rerolls: {player.reroll_currency}</th></tr>'
+                f'<tr>{showcase_uhtml}</tr></table>')
 
 
     def player_box(self, username):
         pb = type(username, (PlayerBoxTable,), {})
-        box = pb.select().order_by(pb.unit_id.asc(), pb.favorited.asc())
+        box = pb.select().order_by(pb.favorited.asc(), pb.unit_id.asc())
         return box_output(box)
 
 
@@ -152,6 +174,34 @@ class GachaManager:
             return
 
 
+    def favorite(self, username, ids):
+        pb = type(username, (PlayerBoxTable,), {})
+        return (pb.update(favorited=True)
+                  .where((pb.id << ids) & ~pb.favorited)
+                  .execute())
+
+
+    def unfavorite(self, username, ids):
+        pb = type(username, (PlayerBoxTable,), {})
+        return (pb.update(favorited=False)
+                  .where((pb.id << ids) & pb.favorited)
+                  .execute())
+
+
+    def showcase(self, username, unit_id, place):
+        pb = type(username, (PlayerBoxTable,), {})
+        return (pb.update(showcase=True)
+                  .where((pb.id == unit_id) & ~pb.showcase)
+                  .execute())
+
+
+    def unshowcase(self, username, unit_id):
+        pb = type(username, (PlayerBoxTable,), {})
+        return (pb.update(showcase=False)
+                  .where((pb.id == unit_id) & pb.showcase)
+                  .execute())
+
+
 class Gacha:
     def __init__(self, franchise):
         self.franchise = franchise
@@ -161,6 +211,21 @@ class Gacha:
             self.table = FgoTable
         elif franchise == 'pad':
             self.table = PadTable
+
+
+    def merge_all(self, username):
+        player_box = type(username, (PlayerBoxTable,), {})
+        unit_id_rows = (player_box.select(player_box.unit_id)
+                                  .group_by(player_box.unit_id)
+                                  .having(peewee.fn.COUNT(player_box.unit_id) >= 3))
+
+        unit_ids = []
+        for uir in unit_id_rows:
+            unit_ids.append(uir.unit_id)
+
+        to_merge = (player_box.select()
+                              .where(player_box.unit_id << unit_ids)
+                              .order_by(player_box.unit_id))
 
 
     def roll(self, username, num_rolls=1):
@@ -185,6 +250,7 @@ class Gacha:
             to_box.append({'gacha': self.franchise,
                            'unit_id': p.unit_id,
                            'name': p.name,
+                           'unit_url': p.unit_url,
                            'pv_img': img_url_pvs[-1],
                            'full_img': img_url_fulls[-1]})
 
