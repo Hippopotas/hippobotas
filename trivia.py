@@ -451,8 +451,8 @@ class QuestionList:
                     continue
 
                 skip = False
-                for tag in series_info['tags']:
-                    if tag['attributes']['name'] == 'Doujinshi':
+                for tag in series_info['attributes']['tags']:
+                    if tag['attributes']['name']['en'] in ['Doujinshi', 'Oneshot']:
                         skip = True
                         break
                 if skip:
