@@ -690,10 +690,11 @@ class Bot:
         for pe in possible_emotes:
             emote = pe.lower()
             if emote in self.room_emotes[room]:
-                uhtml = gen_uhtml_img_code(self.room_emotes[room][emote], height_resize=50, alt=emote)
+                self.room_emotes[room][emote]['times_used'] += 1
+                json.dump(self.room_emotes, open(const.EMOTEFILE, 'w'), indent=4)
 
+                uhtml = gen_uhtml_img_code(self.room_emotes[room][emote]['url'], height_resize=50, alt=emote)
                 await self.outgoing.put(f'{room}|/adduhtml hippo-{emote}, {uhtml}')
-                return
 
 
     async def login(self, keyword):
@@ -1090,16 +1091,16 @@ class Bot:
                 msg = f'{list_name} banlist: {json.dumps(self.banlists[list_name])}'
 
         # Emotes
-        elif (command[0] == 'set_emote' or command[0] == 'add_emote') and User.compare_ranks(caller[0], '#'):
+        elif (command[0] == 'emote_set' or command[0] == 'emote_add') and User.compare_ranks(caller[0], '#'):
             # Args: set_emote emote, url
             if len(command) != 3:
-                await self.outgoing.put(f'{room}|Invalid syntax. Use ]set_emote emote, url')
+                await self.outgoing.put(f'{room}|Invalid syntax. Use ]emote_set emote, url')
                 return
             emote = command[1].lower()
             if emote.endswith(','):
                 emote = emote[:-1]
             if find_true_name(emote) != emote:
-                await self.outgoing.put(f'{room}|Invalid syntax. Use ]set_emote emote, url')
+                await self.outgoing.put(f'{room}|Invalid syntax. Use ]emote_set emote, url')
                 return
 
             if room not in self.room_emotes:
@@ -1110,17 +1111,17 @@ class Bot:
                 await self.outgoing.put(f'{room}|Please no discord URLs.')
                 return
 
-            self.room_emotes[room][emote] = emote_url
+            self.room_emotes[room][emote] = {'times_used': 0, 'url': emote_url}
 
             with open(const.EMOTEFILE, 'w') as f:
                 json.dump(self.room_emotes, f, indent=4)
 
             msg = f'Set :{emote}: to show {emote_url}.'
 
-        elif command[0] == 'del_emote' and User.compare_ranks(caller[0], '#'):
+        elif command[0] == 'emote_del' and User.compare_ranks(caller[0], '#'):
             # Args: del_emote emote
             if len(command) != 2:
-                await self.outgoing.put(f'{room}|Invalid syntax. Use ]del_emote emote')
+                await self.outgoing.put(f'{room}|Invalid syntax. Use ]emote_del emote')
                 return
 
             emote = command[1].lower()
@@ -1135,7 +1136,7 @@ class Bot:
 
                     msg = f'Removed {emote} from room emotes.'
 
-        elif command[0] == 'list_emotes':
+        elif command[0] == 'emote_list':
             msg = 'No emotes found.'
             if len(command) > 1:
                 room = ''.join(command[1:])
