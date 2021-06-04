@@ -3,6 +3,7 @@ import sys
 
 from peewee import *
 from playhouse.migrate import *
+from playhouse.sqliteq import SqliteQueueDatabase
 
 import common.constants as const
 
@@ -30,7 +31,7 @@ def add_to_db(db, table, **kwargs):
 
 
 # User DBs
-PLAYER_DB = SqliteDatabase(const.GPLAYERDBFILE)
+PLAYER_DB = SqliteQueueDatabase(const.GPLAYERDBFILE, pragmas={'journal_mode': 'wal'})
 
 class PlayerAccInfoTable(Model):
     username = CharField(primary_key=True)
@@ -52,7 +53,7 @@ class PlayerBoxTable(Model):
     full_img = CharField()
     unit_level = IntegerField(default=1)
     favorited = BooleanField(default=False)
-    showcase = BooleanField(default=False)
+    showcase = IntegerField(default=0)
 
     class Meta:
         database = PLAYER_DB

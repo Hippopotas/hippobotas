@@ -56,7 +56,7 @@ def box_output(box):
     header_text += '\n' + '-'*85
     for u in box:
         fav = 'Yes' if u.favorited else 'No'
-        showcase = 'Yes' if u.showcase else 'No'
+        showcase = u.showcase if u.showcase else 'No'
 
         box_text += monospace_table_row([(u.id, 5),
                                          (u.name, 40),
@@ -155,7 +155,7 @@ class GachaManager:
 
     def player_box(self, username):
         pb = type(username, (PlayerBoxTable,), {})
-        box = pb.select().order_by(pb.favorited.asc(), pb.unit_id.asc())
+        box = pb.select().order_by(pb.favorited.desc(), pb.unit_id.asc())
         return box_output(box)
 
 
@@ -190,14 +190,20 @@ class GachaManager:
 
     def showcase(self, username, unit_id, place):
         pb = type(username, (PlayerBoxTable,), {})
-        return (pb.update(showcase=True)
-                  .where((pb.id == unit_id) & ~pb.showcase)
+        exists = (pb.select()
+                    .where(pb.showcase == place))
+        if exists:
+            if exists[0].id != unit_id:
+                self.unshowcase(username, exists[0].id)
+
+        return (pb.update(favorited=True, showcase=place)
+                  .where(pb.id == unit_id)
                   .execute())
 
 
     def unshowcase(self, username, unit_id):
         pb = type(username, (PlayerBoxTable,), {})
-        return (pb.update(showcase=False)
+        return (pb.update(showcase=0)
                   .where((pb.id == unit_id) & pb.showcase)
                   .execute())
 

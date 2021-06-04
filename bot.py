@@ -1592,8 +1592,9 @@ class Bot:
                 msg = 'Please enter whole number values as arguments.'
             except Exception:
                 msg = 'Showcase slot must be somewhere from 1-5.'
-            updated = self.gachaman.showcase(true_caller, uid, place)
-            msg = f'Set {uid} to slot {place}.' if updated else 'Nothing happened.'
+            else:
+                updated = self.gachaman.showcase(true_caller, uid, place)
+                msg = f'Set unit {uid} to slot {place}.' if updated else 'Nothing happened.'
 
         elif command[0] == 'unshowcase' and pm:
             if len(command) < 2:
@@ -1605,8 +1606,9 @@ class Bot:
                 uid = int(re.sub('[^0-9]', '', command[1]))
             except ValueError:
                 msg = 'Please enter whole number values as arguments.'
-            updated = self.gachaman.unshowcase(true_caller, uid)
-            msg = f'Removed {uid} from showcase.' if updated else 'Nothing happened.'
+            else:
+                updated = self.gachaman.unshowcase(true_caller, uid)
+                msg = f'Removed {uid} from showcase.' if updated else 'Nothing happened.'
 
         # Self maintenance
         elif command[0] == 'ladder_toggle' and true_caller == const.OWNER:
