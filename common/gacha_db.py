@@ -35,7 +35,7 @@ PLAYER_DB = SqliteQueueDatabase(const.GPLAYERDBFILE, pragmas={'journal_mode': 'w
 
 class PlayerAccInfoTable(Model):
     username = CharField(primary_key=True)
-    roll_currency = IntegerField(default=100)
+    roll_currency = IntegerField(default=200)
     level_currency = IntegerField(default=10000)
     reroll_currency = IntegerField(default=0)
 

@@ -4,6 +4,7 @@ import random
 import requests
 
 from datetime import datetime
+from peewee import EnclosedNodeList, Tuple, ValuesList
 
 import common.constants as const
 
@@ -188,24 +189,102 @@ class GachaManager:
                   .execute())
 
 
-    def showcase(self, username, unit_id, place):
+    def showcase(self, username, uid, place):
         pb = type(username, (PlayerBoxTable,), {})
         exists = (pb.select()
                     .where(pb.showcase == place))
         if exists:
-            if exists[0].id != unit_id:
+            if exists[0].id != uid:
                 self.unshowcase(username, exists[0].id)
 
         return (pb.update(favorited=True, showcase=place)
-                  .where(pb.id == unit_id)
+                  .where(pb.id == uid)
                   .execute())
 
 
-    def unshowcase(self, username, unit_id):
+    def unshowcase(self, username, uid):
         pb = type(username, (PlayerBoxTable,), {})
         return (pb.update(showcase=0)
-                  .where((pb.id == unit_id) & pb.showcase)
+                  .where((pb.id == uid) & pb.showcase)
                   .execute())
+
+
+    def can_merge(self, username, ids=None):
+        pb = type(username, (PlayerBoxTable,), {})
+
+        unit_id_rows = None
+        if ids:
+            unit_id_rows = (pb.select(pb.gacha, pb.unit_id)
+                            .where(~pb.favorited & (pb.id << ids))
+                            .group_by(pb.gacha, pb.unit_id)
+                            .having(peewee.fn.COUNT(pb.unit_id) >= 3))
+        else:
+            unit_id_rows = (pb.select(pb.gacha, pb.unit_id)
+                            .where(~pb.favorited)
+                            .group_by(pb.gacha, pb.unit_id)
+                            .having(peewee.fn.COUNT(pb.unit_id) >= 3))
+
+        valid_units = []
+        for uir in unit_id_rows:
+            if not str(uir.unit_id).endswith('5'):
+                valid_units.append((uir.gacha, uir.unit_id))
+
+        vl = ValuesList(valid_units)
+        return EnclosedNodeList([vl])
+
+
+    def merge(self, username, ids=None):
+        pb = type(username, (PlayerBoxTable,), {})
+
+        valid_units = self.can_merge(username, ids)
+
+        if ids:
+            to_merge = (pb.select()
+                          .where((Tuple(pb.gacha, pb.unit_id).in_(valid_units)) &
+                                 (pb.id << ids))
+                          .order_by(pb.unit_id))
+        else:
+            to_merge = (pb.select()
+                          .where(Tuple(pb.gacha, pb.unit_id).in_(valid_units))
+                          .order_by(pb.unit_id))
+
+        grouped_units = {}
+        curr_unit = []
+        curr_id = None
+        for row in to_merge:
+            if row.gacha not in grouped_units:
+                grouped_units[row.gacha] = {}
+
+            if curr_id != (row.gacha, row.unit_id):
+                if curr_unit:
+                    grouped_units[curr_id[0]][curr_id[1]] = curr_unit
+                curr_unit = []
+                curr_id = (row.gacha, row.unit_id)
+
+            curr_unit.append(row)
+
+        if curr_unit:
+            grouped_units[curr_id[0]][curr_id[1]] = curr_unit
+
+        to_add = {}
+        to_delete = []
+        for gacha in grouped_units:
+            to_add[gacha] = []
+
+            for uid in grouped_units[gacha]:
+                num_merged = len(grouped_units[gacha][uid]) // 3
+                to_add[gacha] += [round(uid + 0.1, 1)] * num_merged
+                for u in grouped_units[gacha][uid][:(num_merged * 3)]:
+                    to_delete.append((gacha, u.id))
+        
+        add_query = []
+        for gacha in to_add:
+            add_query += self.gachas[gacha].gen_unit_infos(to_add[gacha])
+
+        delete_query = EnclosedNodeList([ValuesList(to_delete)])
+
+        pb.insert_many(add_query).execute()
+        return pb.delete().where(Tuple(pb.gacha, pb.id).in_(delete_query)).execute()
 
 
 class Gacha:
@@ -219,19 +298,32 @@ class Gacha:
             self.table = PadTable
 
 
-    def merge_all(self, username):
-        player_box = type(username, (PlayerBoxTable,), {})
-        unit_id_rows = (player_box.select(player_box.unit_id)
-                                  .group_by(player_box.unit_id)
-                                  .having(peewee.fn.COUNT(player_box.unit_id) >= 3))
+    def unit_dict(self, unit_info):
+        img_url_pvs = json.loads(unit_info.img_url_pv)
+        img_url_fulls = json.loads(unit_info.img_url_full)
+        asc = int(10 * round(unit_info.unit_id % 1, 1)) + 1
+        return {'gacha': self.franchise,
+                'unit_id': unit_info.unit_id,
+                'name': unit_info.name,
+                'unit_url': unit_info.unit_url,
+                'pv_img': img_url_pvs[-1],
+                'full_img': img_url_fulls[-1],
+                'unit_level': asc}
 
-        unit_ids = []
-        for uir in unit_id_rows:
-            unit_ids.append(uir.unit_id)
 
-        to_merge = (player_box.select()
-                              .where(player_box.unit_id << unit_ids)
-                              .order_by(player_box.unit_id))
+    def gen_unit_infos(self, unit_ids):
+        to_box = []
+        unit_infos = self.table.select().where(self.table.unit_id << unit_ids)
+        for uid in unit_ids:
+            unit = None
+            for info in unit_infos:
+                if info.unit_id == uid:
+                    unit = info
+                    break
+
+            to_box.append(self.unit_dict(unit))
+        
+        return to_box
 
 
     def roll(self, username, num_rolls=1):
@@ -241,7 +333,7 @@ class Gacha:
         if user_rolls < num_rolls:
             return
 
-        pool = self.table.select().where(self.table.base_pull_rate > 0)
+        pool = self.table.select()
 
         weights = []
         for u in pool:
@@ -253,12 +345,7 @@ class Gacha:
         for p in pulls:
             img_url_pvs = json.loads(p.img_url_pv)
             img_url_fulls = json.loads(p.img_url_full)
-            to_box.append({'gacha': self.franchise,
-                           'unit_id': p.unit_id,
-                           'name': p.name,
-                           'unit_url': p.unit_url,
-                           'pv_img': img_url_pvs[-1],
-                           'full_img': img_url_fulls[-1]})
+            to_box.append(self.unit_dict(p))
 
         player_box = type(username, (PlayerBoxTable,), {})
         player_box.insert_many(to_box).execute()

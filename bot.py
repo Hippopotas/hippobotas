@@ -1611,6 +1611,21 @@ class Bot:
                 updated = self.gachaman.unshowcase(true_caller, uid)
                 msg = f'Removed {uid} from showcase.' if updated else 'Nothing happened.'
 
+        elif command[0] == 'merge' and pm:
+            if not self.gachaman.player_check(true_caller):
+                msg = 'You don\'t have an account! Use ]gacha_join first.'
+
+            try:
+                ids = None
+                if len(command) > 1:
+                    cmd_args = ''.join(command[1:])
+                    ids = [int(x) for x in cmd_args.split(',')]
+            except ValueError:
+                msg = 'Please enter whole number values as arguments.'
+            else:
+                num_merged = self.gachaman.merge(true_caller, ids)
+                msg = f'{num_merged} units merged.'
+
         # Self maintenance
         elif command[0] == 'ladder_toggle' and true_caller == const.OWNER:
             self.allow_laddering = not self.allow_laddering
