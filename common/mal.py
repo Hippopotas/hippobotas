@@ -6,7 +6,7 @@ import random
 
 import common.constants as const
 
-from common.uhtml import UserInfo
+from common.uhtml import UserInfo, ItemInfo
 from common.utils import find_true_name, gen_uhtml_img_code
 
 async def check_mal_nsfw(medium, series):
@@ -212,21 +212,18 @@ async def mal_search(putter, ctx, medium, query):
                 img_uhtml = gen_uhtml_img_code(r['image_url'], height_resize=100)
 
                 ongoing = 'Ongoing' if r.get('airing', r.get('publishing', False)) else 'Completed'
-                ongoing_color = '#E0DD24' if ongoing == 'Ongoing' else '#00FF00'
                 parts = 'Episodes' if 'episodes' in r else 'Chapters'
 
-                text_box = (f"""<td style='color:{ongoing_color}; font-size:10px; padding-top:5px'>{ongoing}</td>"""
-                            f"""<td style='color:#555; font-size:10px; padding-top:5px'>{parts}: {r[parts.lower()]}</td>"""
-                            f"""<td style='color:#555; font-size:10px; padding-top:5px'>Score: {r['score']}</td></tr>"""
-                            f"""<tr><td colspan=3 style='width:300px; padding:5px'>{r['synopsis']}</td>""")
+                item_info = ItemInfo(name, r['url'], 'mal')
 
-                uhtml = ('<table style=\'border:3px solid #0088cc; border-spacing:0px; border-radius:10px; '
-                         'background-image:url(https://i.imgur.com/l8iJKoX.png); background-size:cover\'>'
-                         '<thead><tr><th colspan=4 width=96 style=\'font-size:14px; border-bottom:3px solid #0088cc; padding:5px\'>'
-                        f"""<a href='{r['url']}' style='color:#8311a6'>{name}</a></th></tr>"""
-                         '<tr style=\'text-align:center\'>'
-                        f"""<td rowspan=2 style='padding:5px'>{img_uhtml}</td>"""
-                        f'{text_box}</tr></table>')
+                kwargs = {'img_uhtml': img_uhtml,
+                          'ongoing': ongoing,
+                          'parts': f'{parts}: {r[parts.lower()]}',
+                          'score': f"""Score: {r['score']}""",
+                          'synopsis': r['synopsis']}
+
+                uhtml = item_info.animanga(**kwargs)
+
                 msg_body = f"""/adduhtml hippo{medium}{r['mal_id']}, {uhtml}"""
                 break
 

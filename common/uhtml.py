@@ -14,10 +14,23 @@ class Uhtml():
 
 
 class InfoBox(Uhtml):
-    def __init__(self, bg_img, border_color):
-        self.bg_img = bg_img
-        self.border_color = border_color
+    def __init__(self, palette):
+        if palette == 'mal':
+            self.bg_img = 'https://i.imgur.com/l8iJKoX.png'
+            self.border_color = '#0088cc'
+        elif palette == 'steam':
+            self.bg_img = 'https://i.imgur.com/c68ilQW.png'
+            self.border_color = '#858585'
+
         super(InfoBox, self).__init__()
+
+
+    def table_style(self):
+        return (f'border:3px solid {self.border_color};'
+                 'border-spacing:0px;'
+                 'border-radius:10px;'
+                f'background-image:url({self.bg_img});'
+                 'background-size:cover')
 
 
 class UserInfo(InfoBox):
@@ -25,16 +38,7 @@ class UserInfo(InfoBox):
         self.username = username
         self.userlink = userlink
 
-        if palette == 'mal':
-            super(UserInfo, self).__init__('https://i.imgur.com/l8iJKoX.png', '#0088cc')
-        elif palette == 'steam':
-            super(UserInfo, self).__init__('https://i.imgur.com/c68ilQW.png', '#858585')
-
-        self.table_style = (f'border:3px solid {self.border_color};'
-                             'border-spacing:0px;'
-                             'border-radius:10px;'
-                            f'background-image:url({self.bg_img});'
-                             'background-size:cover')
+        super(UserInfo, self).__init__(palette)
 
 
     def mal_user(self, **kwargs):
@@ -50,7 +54,7 @@ class UserInfo(InfoBox):
                        'vertical-align:top;'
                        'padding-bottom:5px')
 
-        with self.html.table(style=self.table_style):
+        with self.html.table(style=self.table_style()):
             with self.html.thead():
                 with self.html.tr():
                     with self.html.th(width=96, style=username_style):
@@ -107,5 +111,51 @@ class UserInfo(InfoBox):
                         self.html.a(href=kwargs['manga_link'],
                                     style='text-decoration:none; color: #8311a6',
                                     _t=kwargs['manga_title'])
+
+        return self.uglify()
+
+
+class ItemInfo(InfoBox):
+    def __init__(self, item_name, item_link, palette):
+        self.item_name = item_name
+        self.item_link = item_link
+
+        super(ItemInfo, self).__init__(palette)
+
+
+    def animanga(self, **kwargs):
+        title_style = ('font-size:14px;'
+                       'padding:5px;'
+                      f'border-bottom: 3px solid {self.border_color}')
+
+        ongoing_color = '#E0DD24' if kwargs['ongoing'] == 'Ongoing' else '#00FF00'
+
+        status_style = ('color:#555;'
+                        'font-size:10px;'
+                        'padding-top:5px')
+
+        with self.html.table(style=self.table_style()):
+            with self.html.thead():
+                with self.html.tr():
+                    with self.html.th(colspan=4, width=96, style=title_style):
+                        self.html.a(href=self.item_link,
+                                    style='color:#8311a6',
+                                    _t=self.item_name)
+
+                with self.html.tr(style='text-align:center'):
+                    self.html.td(rowspan=2, style='padding:5px',
+                                 _t=kwargs['img_uhtml'])
+
+                    self.html.td(style=(f'color:{ongoing_color};'
+                                         'font-size:10px;'
+                                         'padding-top:5px'),
+                                 _t=kwargs['ongoing'])
+
+                    self.html.td(style=status_style, _t=kwargs['parts'])
+                    self.html.td(style=status_style, _t=kwargs['score'])
+
+                with self.html.tr():
+                    self.html.td(colspan=3, style='width:300px; padding:5px',
+                                 _t=kwargs['synopsis'])
 
         return self.uglify()
