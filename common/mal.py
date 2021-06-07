@@ -6,6 +6,7 @@ import random
 
 import common.constants as const
 
+from common.uhtml import UserInfo
 from common.utils import find_true_name, gen_uhtml_img_code
 
 async def check_mal_nsfw(medium, series):
@@ -114,46 +115,24 @@ async def show_mal_user(putter, username, true_caller, ctx):
             top_series_uhtml[medium] = (top_series, top_series_url,
                                         gen_uhtml_img_code(top_series_img, height_resize=64))
 
-        mal_uhtml = ('<table style=\'border:3px solid #0088cc; border-spacing:0px; border-radius:10px; '
-                     'background-image:url(https://i.imgur.com/l8iJKoX.png); background-size:cover\'>'
-                     '<thead><tr><th width=96 style=\'font-size:14px; padding:5px; '
-                     'border-right:3px solid #0088cc\'>'
-                     '<a href=\'{}\' style=\'color:#8311a6\'>{}</a>'
-                     '</th><th colspan=2>Anime</th>'
-                     '<th colspan=2>Manga</th></tr></thead>'
-                     '<tbody><tr><td rowspan=3 style='
-                     '\'border-right:3px solid #0088cc; padding:5px\'>{}</td>'
-                     '<td style=\'text-align:center\'>Rand Fav</td>'
-                     '<td style=\'font-size:10px; vertical-align:middle\' rowspan=3>'
-                     'Completed: {}<br><br>Watching: {}<br><br>'
-                     'Episodes Watched: {}<br><br>Mean Score: {}</td>'
-                     '<td style=\'text-align:center\'>Rand Fav</td>'
-                     '<td style=\'font-size:10px; vertical-align:middle; padding-right:5px\' rowspan=3>'
-                     'Completed: {}<br><br>Reading: {}<br><br>'
-                     'Chapters Read: {}<br><br>Mean Score: {}</td></tr>'
-                     '<tr><td>{}</td><td>{}</td></tr>'
-                     '<tr><td width=80 style=\'font-size:10px; font-style:italic; '
-                     'text-align:center; vertical-align:top; padding-bottom:5px\'>'
-                     '<a href=\'{}\' style=\'text-decoration:none; color:#8311a6\'>{}</a></td>'
-                     '<td width=80 style=\'font-size:10px; font-style:italic; '
-                     'text-align:center; vertical-align:top; padding-bottom:5px\'>'
-                     '<a href=\'{}\' style=\'text-decoration:none; color:#8311a6\'>{}</a></td>'
-                     '</tr></tbody></table>'.format(
-                            userdata['url'], userdata['username'], img_uhtml,
-                            userdata['anime_stats']['completed'],
-                            userdata['anime_stats']['watching'],
-                            userdata['anime_stats']['episodes_watched'],
-                            userdata['anime_stats']['mean_score'],
-                            userdata['manga_stats']['completed'],
-                            userdata['manga_stats']['reading'],
-                            userdata['manga_stats']['chapters_read'],
-                            userdata['manga_stats']['mean_score'],
-                            top_series_uhtml['anime'][2],
-                            top_series_uhtml['manga'][2],
-                            top_series_uhtml['anime'][1],
-                            top_series_uhtml['anime'][0],
-                            top_series_uhtml['manga'][1],
-                            top_series_uhtml['manga'][0]))
+        user_info = UserInfo(userdata['username'], userdata['url'], 'mal')
+        kwargs = {'profile_pic': img_uhtml,
+                  'anime_completed': userdata['anime_stats']['completed'],
+                  'anime_watching': userdata['anime_stats']['watching'],
+                  'ep_watched': userdata['anime_stats']['episodes_watched'],
+                  'anime_score': userdata['anime_stats']['mean_score'],
+                  'manga_completed': userdata['manga_stats']['completed'],
+                  'manga_reading': userdata['manga_stats']['reading'],
+                  'chp_read': userdata['manga_stats']['chapters_read'],
+                  'manga_score': userdata['manga_stats']['mean_score'],
+                  'anime_img': top_series_uhtml['anime'][2],
+                  'manga_img': top_series_uhtml['manga'][2],
+                  'anime_link': top_series_uhtml['anime'][1],
+                  'anime_title': top_series_uhtml['anime'][0],
+                  'manga_link': top_series_uhtml['manga'][1],
+                  'manga_title': top_series_uhtml['manga'][0]}
+
+        mal_uhtml = user_info.mal_user(**kwargs)
 
         await putter(f'{prefix}/adduhtml {username}-mal, {mal_uhtml}')
     else:
