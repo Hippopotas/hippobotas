@@ -229,6 +229,8 @@ class GachaManager:
             if not str(uir.unit_id).endswith('5'):
                 valid_units.append((uir.gacha, uir.unit_id))
 
+        if not valid_units:
+            return
         vl = ValuesList(valid_units)
         return EnclosedNodeList([vl])
 
@@ -237,6 +239,9 @@ class GachaManager:
         pb = type(username, (PlayerBoxTable,), {})
 
         valid_units = self.can_merge(username, ids)
+
+        if not valid_units:
+            return 0
 
         if ids:
             to_merge = (pb.select()

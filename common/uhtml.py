@@ -177,6 +177,44 @@ class UserInfo(InfoBox):
         return self.uglify()
 
 
+    @staticmethod
+    def showcase_uhtml(**kwargs):
+        html = Airium()
+
+        cell_style = ''
+        if kwargs['is_first']:
+            cell_style = ('padding:5px;'
+                         f'border-right:3px solid #858585')
+
+        with html.td(style=cell_style):
+            html.a(href=kwargs['unit_url'], _t=kwargs['img_uhtml'])
+        
+        return html
+
+
+    def gacha_user(self, **kwargs):
+        username_style = ('font-size:14px;'
+                          'padding:5px;'
+                         f'border-right:3px solid {self.border_color}')
+
+        with self.html.table(style=self.table_style()):
+            with self.html.thead():
+                with self.html.tr():
+                    self.html.th(style=username_style, _t=self.username)
+
+                    with self.html.th(colspan=2, align='left',
+                                      style='font-weight:normal; color:#858585; padding-left:5px'):
+                        self.html(f"""Rolls: {kwargs['roll_currency']} | """
+                                  f"""Rerolls: {kwargs['reroll_currency']}""")
+
+            with self.html.tbody():
+                with self.html.tr():
+                    for sc_html in kwargs['showcases']:
+                        self.html(self.uglify(sc_html))
+
+        return self.uglify()
+
+
 class ItemInfo(InfoBox):
     def __init__(self, item_name, item_link, palette):
         self.item_name = item_name

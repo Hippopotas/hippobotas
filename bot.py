@@ -1520,7 +1520,7 @@ class Bot:
                 msg = 'You don\'t have an account! Use ]gacha_join first'
             else:
                 pass
-                #msg = self.gachaman.player_info(true_caller)
+                msg = self.gachaman.profile(true_caller)
 
         elif ((command[0] == 'gacha_roll' or command[0] == 'roll')
                 and room == const.GACHA_ROOM):

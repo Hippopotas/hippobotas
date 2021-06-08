@@ -45,21 +45,26 @@ def img_dims_from_uri(uri):
     return dims
 
 
-def gen_uhtml_img_code(url, height_resize=300, width_resize=None, center=True,
-                       **kwargs):
+def gen_uhtml_img_code(url, height_resize=300, width_resize=None,
+                       dims=None, center=True, **kwargs):
     """ Generates basic HTML code for an img tag from a URL. """
-    w, h = img_dims_from_uri(url)
-    if not w or not h:
-        w, h = img_dims_from_uri(IMG_NOT_FOUND)
+    w, h = (0, 0)
+    if dims:
+        w, h = dims
+    else:
+        w, h = img_dims_from_uri(url)
+        if not w or not h:
+            w, h = img_dims_from_uri(IMG_NOT_FOUND)
+            url = IMG_NOT_FOUND
 
-    if h > height_resize:
-        w = w * height_resize // h
-        h = height_resize
-    
-    if width_resize:
-        if w > width_resize:
-            h = h * width_resize // w
-            w = width_resize
+        if h > height_resize:
+            w = w * height_resize // h
+            h = height_resize
+        
+        if width_resize:
+            if w > width_resize:
+                h = h * width_resize // w
+                w = width_resize
 
     kwarg_opts = ''
     for k in kwargs:
