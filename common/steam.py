@@ -7,6 +7,7 @@ import random
 import re
 
 from common.constants import IMG_NOT_FOUND, STEAM_API, STEAMFILE
+from common.uhtml import UserInfo
 from common.utils import find_true_name, gen_uhtml_img_code
 
 async def get_steam_user(username, retries=2):
@@ -103,13 +104,14 @@ async def gen_uhtml_steam_game(game_id, recent_hours, total_hours):
 
     game_name = game_info['name']
     img_uhtml = gen_uhtml_img_code(game_info['header_image'], height_resize=50)
-    msg = (f'<tr><td style=\'padding: 0px 5px 5px 5px\'>{img_uhtml}</td>'
-            '<td align=left style=\'vertical-align:top; font-size:10px\'>'
-           f'<a href=\'https://store.steampowered.com/app/{game_id}\' style=\'color:#FFF\'>'
-           f'{game_name}</a></td>'
-            '<td align=right style=\'vertical-align:bottom; font-size:10px; color:#FFF; padding: 0px 5px 5px 0px\'>'
-           f'{recent_hours:.1f} hrs last two weeks<br>{total_hours:.1f} hrs total playtime</td></tr>')
-    
+
+    game_kwargs = {'img_uhtml': img_uhtml,
+                   'url': f'https://store.steampowered.com/app/{game_id}',
+                   'name': game_name,
+                   'recent_hours': round(recent_hours, 1),
+                   'total_hours': round(total_hours, 1)}
+    msg = UserInfo.steam_game_uhtml(**game_kwargs)
+
     return msg
 
 
@@ -169,17 +171,12 @@ async def show_steam_user(putter, username, true_caller, ctx):
 
         profile_url = userdata['profileurl']
         persona_name = userdata['personaname']
-        all_game_uhtml = ''.join(game_uhtmls)
 
-        steam_uhtml = ('<table style=\'border:3px solid #858585; border-spacing:0px; border-radius:10px; '
-                       'background-image:url(https://i.imgur.com/c68ilQW.png); background-size:cover\'>'
-                       '<thead><tr><th width=96 style=\'font-size:14px; padding:5px; border-right:3px solid #858585\'>'
-                      f'<a href=\'{profile_url}\' style=\'color:#FFF\'>{persona_name}</a></th>'
-                       '<th align=left style=\'font-weight:normal; color:#858585; padding-left:5px\' colspan=2>Recent Activity</th>'
-                       '<th align=right style=\'font-weight:normal; color:#858585; padding-left:30px; padding-right: 5px\'>'
-                      f'{total_recent_hours:.1f} hours past 2 weeks</th></tr></thead><tbody>'
-                      f'<td rowspan=6 style=\'border-right:3px solid #858585; padding:5px\'>{img_uhtml}</td></tr>'
-                      f'{all_game_uhtml}</tbody></table>')
+        user_info = UserInfo(userdata['personaname'], userdata['profileurl'], 'steam')
+        kwargs = {'hours': round(total_recent_hours, 1),
+                  'img_uhtml': img_uhtml,
+                  'game_uhtmls': game_uhtmls}
+        steam_uhtml = user_info.steam_user(**kwargs)
 
         await putter(f'{prefix}/adduhtml {username}-steam, {steam_uhtml}')
     else:
