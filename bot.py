@@ -1142,7 +1142,7 @@ class Bot:
                 room = ''.join(command[1:])
             if room in self.room_emotes:
                 if len(self.room_emotes[room]) >= 1:
-                    msg = f'{room} emotes: ' + ', '.join(self.room_emotes[room])
+                    msg = f'!code {room} emotes: ' + ', '.join(self.room_emotes[room])
 
         # Typing test
         elif command[0] == 'typing_test':
