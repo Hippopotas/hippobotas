@@ -1,5 +1,6 @@
 from airium import Airium
 
+SHOWCASE_BORDER_1 = 'https://i.imgur.com/auG4Q2a.png'
 
 class Uhtml():
     def __init__(self):
@@ -181,13 +182,17 @@ class UserInfo(InfoBox):
     def showcase_uhtml(**kwargs):
         html = Airium()
 
-        cell_style = ''
+        div_style = 'padding-top:9px'
         if kwargs['is_first']:
-            cell_style = ('padding:5px;'
-                         f'border-right:3px solid #858585')
+            div_style = ('padding-left:6px;'
+                         'padding-top:18px;'
+                         'min-width:80px;'
+                        f'background-image: url(\'{SHOWCASE_BORDER_1}\');'
+                         'background-repeat: no-repeat')
 
-        with html.td(style=cell_style):
-            html.a(href=kwargs['unit_url'], _t=kwargs['img_uhtml'])
+        with html.td(style='padding:5px'):
+            with html.div(style=div_style):
+                html.a(href=kwargs['unit_url'], _t=kwargs['img_uhtml'])
         
         return html
 
@@ -195,15 +200,19 @@ class UserInfo(InfoBox):
     def gacha_user(self, **kwargs):
         username_style = ('font-size:14px;'
                           'padding:5px;'
-                         f'border-right:3px solid {self.border_color}')
+                         f'border-bottom:3px solid {self.border_color}')
+
+        stats_style = ('font-weight:normal;'
+                       'color:#858585;'
+                       'padding-left:5px;'
+                      f'border-bottom:3px solid {self.border_color}')
 
         with self.html.table(style=self.table_style()):
             with self.html.thead():
                 with self.html.tr():
                     self.html.th(style=username_style, _t=self.username)
 
-                    with self.html.th(colspan=2, align='left',
-                                      style='font-weight:normal; color:#858585; padding-left:5px'):
+                    with self.html.th(colspan=4, align='left', style=stats_style):
                         self.html(f"""Rolls: {kwargs['roll_currency']} | """
                                   f"""Rerolls: {kwargs['reroll_currency']}""")
 

@@ -10,10 +10,10 @@ import common.constants as const
 
 from common.gacha_db import PlayerAccInfoTable, PlayerBoxTable
 from common.gacha_db import AllGachasTable, PadTable, FgoTable
+from common.uhtml import UserInfo
 from common.utils import gen_uhtml_img_code, monospace_table_row
 
-HOURLY_ROLLS = 2
-
+HOURLY_ROLLS = 10
 
 def unit_uhtml(unit, pm=False):
     """ Generates the uhtml for a unit. """
@@ -131,32 +131,43 @@ class GachaManager:
         player = self.player_info(username)
         box = type(username, (PlayerBoxTable,), {})
 
-        showcases = box.select().where(box.showcase).order_by(box.showcase)
+        showcases = box.select().where(box.showcase > 0).order_by(box.showcase.asc())
         sc_infos = [(const.BLANK_IMG, '', '', 1)] * 5
-        for i, sc in enumerate(range(min(5, len(showcases)))):
-            sc_infos[i] = (sc.full_img, sc.name, sc.unit_url, sc.unit_level)
+        for i, sc in enumerate(showcases):
+            sc_infos[i] = (sc.full_img, sc.name, sc.unit_url, sc.gacha)
 
-        showcase_uhtml = ''
+        showcase_uhtmls = []
         for i, info in enumerate(sc_infos):
-            img_height = 100 if i == 0 else 70
-            showcase_uhtml += ('<td style=\'padding:5px; border-right:3px '
-                              f'solid #858585\'><a href=\'{sc_infos[0][2]}\'>'
-                              f'{gen_uhtml_img_code(sc_infos[0][0], height_resize=img_height, alt=sc_infos[0][1])}'
-                               '</a></td>')
+            is_first = (i == 0)
+            img_height = 100 if is_first else 85
 
-        uhtml = ('<table style=\'border:3px solid #858585; border-spacing:0px;'
-                 'border-radius:10px; background-image:url(https://i.imgur.com/c68ilQW.png);'
-                 'background-size:cover\'><thead><tr>'
-                 '<th style=\'font-size:14px; padding:5px; border-right:3px '
-                f'solid #858585\'>{username}</th>'
-                 '<th colspan=2 align=left style=\'font-weight:normal; color:#858585; padding-left: 5px\'>'
-                f'Rolls: {player.roll_currency} | Rerolls: {player.reroll_currency}</th></tr>'
-                f'<tr>{showcase_uhtml}</tr></table>')
+            img_uhtml = ''
+            img_style = ('"border-radius:5px; border: 1px solid #FFD700"')
+            if info[3] == 'fgo':
+                img_width = (img_height * 512 // 724)
+                img_uhtml = gen_uhtml_img_code(info[0], dims=(img_width, img_height),
+                                               alt=info[1], style=img_style)
+            else:
+                img_uhtml = gen_uhtml_img_code(info[0], height_resize=img_height,
+                                               alt=info[1], style=img_style)
+
+            sc_kwargs = {'is_first': is_first,
+                         'unit_url': info[2],
+                         'img_uhtml': img_uhtml}
+            showcase_uhtmls.append(UserInfo.showcase_uhtml(**sc_kwargs))
+
+        user_info = UserInfo(username, '', 'steam')
+        kwargs = {'roll_currency': player.roll_currency,
+                  'reroll_currency': player.reroll_currency,
+                  'showcases': showcase_uhtmls}
+
+        uhtml = user_info.gacha_user(**kwargs)
+        return f'/adduhtml gprofile-{username}, {uhtml}'
 
 
     def player_box(self, username):
         pb = type(username, (PlayerBoxTable,), {})
-        box = pb.select().order_by(pb.favorited.desc(), pb.unit_id.asc())
+        box = pb.select().order_by(pb.favorited.desc(), pb.unit_level.desc(), pb.unit_id.asc())
         return box_output(box)
 
 
