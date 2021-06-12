@@ -10,7 +10,7 @@ import common.constants as const
 
 from common.gacha_db import PlayerAccInfoTable, PlayerBoxTable
 from common.gacha_db import AllGachasTable, PadTable, FgoTable
-from common.uhtml import UserInfo
+from common.uhtml import ItemInfo, UserInfo
 from common.utils import gen_uhtml_img_code, monospace_table_row
 
 HOURLY_ROLLS = 10
@@ -142,7 +142,7 @@ class GachaManager:
             img_height = 100 if is_first else 85
 
             img_uhtml = ''
-            img_style = ('"border-radius:5px; border: 1px solid #FFD700"')
+            img_style = '"border-radius:5px; border: 1px solid #FFD700"'
             if info[3] == 'fgo':
                 img_width = (img_height * 512 // 724)
                 img_uhtml = gen_uhtml_img_code(info[0], dims=(img_width, img_height),
@@ -237,7 +237,7 @@ class GachaManager:
 
         valid_units = []
         for uir in unit_id_rows:
-            if not str(uir.unit_id).endswith('5'):
+            if not str(uir.unit_id).endswith('4'):
                 valid_units.append((uir.gacha, uir.unit_id))
 
         if not valid_units:
@@ -303,6 +303,24 @@ class GachaManager:
         return pb.delete().where(Tuple(pb.gacha, pb.id).in_(delete_query)).execute()
 
 
+    def show_unit_info(self, gacha, unit_name):
+        if gacha not in self.gachas:
+            return
+
+        unit = self.gachas[gacha].search_units(unit_name)
+        if not unit:
+            return
+
+        unit_info = ItemInfo(unit.name, unit.unit_url, 'steam')
+        return unit_info.gacha_unit(gacha=gacha, unit=unit)
+
+
+    def change_full_art(self, username, unique_id, art_idx):
+        pb = type(username, (PlayerBoxTable,), {})
+
+        #pb.select().where()
+
+
 class Gacha:
     def __init__(self, franchise):
         self.franchise = franchise
@@ -312,6 +330,21 @@ class Gacha:
             self.table = FgoTable
         elif franchise == 'pad':
             self.table = PadTable
+
+
+    def search_units(self, unit_name):
+        name_search = self.table.select().where(self.table.name.contains(unit_name))
+
+        unit_info = None
+        for unit in name_search:
+            if str(unit.unit_id).endswith('4'):
+                if unit_info:
+                    if len(unit_info.name) > len(unit.name):
+                        unit_info = unit
+                else:
+                    unit_info = unit
+
+        return unit_info
 
 
     def unit_dict(self, unit_info):

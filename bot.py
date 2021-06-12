@@ -1626,6 +1626,17 @@ class Bot:
                 num_merged = self.gachaman.merge(true_caller, ids)
                 msg = f'{num_merged} units merged.'
 
+        elif command[0] == 'unit' and not pm:
+            if len(command) < 3:
+                return
+
+            msg = self.gachaman.show_unit_info(command[1], ' '.join(command[2:]))
+
+            if not msg:
+                msg = 'Usage: ]unit GACHA UNIT_NAME'
+            else:
+                msg = f'/adduhtml hippo-{command[2]}, {msg}'
+
         # Self maintenance
         elif command[0] == 'ladder_toggle' and true_caller == const.OWNER:
             self.allow_laddering = not self.allow_laddering

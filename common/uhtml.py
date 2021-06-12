@@ -1,4 +1,8 @@
+import json
+
 from airium import Airium
+
+from common.utils import img_dims_from_uri
 
 SHOWCASE_BORDER_1 = 'https://i.imgur.com/auG4Q2a.png'
 
@@ -199,6 +203,7 @@ class UserInfo(InfoBox):
 
     def gacha_user(self, **kwargs):
         username_style = ('font-size:14px;'
+                          'color:#FFF;'
                           'padding:5px;'
                          f'border-bottom:3px solid {self.border_color}')
 
@@ -251,6 +256,7 @@ class ItemInfo(InfoBox):
                                     style='color:#8311a6',
                                     _t=self.item_name)
 
+            with self.html.tbody():
                 with self.html.tr(style='text-align:center'):
                     self.html.td(rowspan=2, style='padding:5px',
                                  _t=kwargs['img_uhtml'])
@@ -266,5 +272,57 @@ class ItemInfo(InfoBox):
                 with self.html.tr():
                     self.html.td(colspan=3, style='width:300px; padding:5px',
                                  _t=kwargs['synopsis'])
+
+        return self.uglify()
+
+
+    def gacha_unit(self, **kwargs):
+        unit = kwargs['unit']
+        gacha = kwargs['gacha']
+
+        img_url_pvs = json.loads(unit.img_url_pv)
+        img_url_fulls = json.loads(unit.img_url_full)
+
+        name_style = ('font-size:14px;'
+                      'padding:5px;'
+                     f'border-bottom: 3px solid {self.border_color}')
+
+        font_style = ('text-align:center;'
+                      'font-size:12px;'
+                      'font-weight:bold;'
+                      'color:#FFD700;'
+                      'text-shadow: -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 1px 1px 0 #000')
+
+        base_div_style = ('border-radius:5px;'
+                          'border: 1px solid #FFD700')
+
+        with self.html.table(style=self.table_style()):
+            with self.html.thead():
+                with self.html.tr():
+                    with self.html.th(colspan=10, style=name_style):
+                        self.html.a(href=self.item_link, style='color:#FFF',
+                                    _t=f'{self.item_name} [{gacha.upper()}]')
+
+            with self.html.tbody():
+                with self.html.tr(style=font_style):
+                    for i, img in enumerate(img_url_fulls):
+                        img_height = 100
+                        img_width = 100
+
+                        if gacha == 'fgo':
+                            img_width = (img_height * 512 // 724)
+                        else:
+                            base_img_dims = img_dims_from_uri(img)
+                            img_width = img_height * base_img_dims[0] // base_img_dims[1]
+
+                        with self.html.td(style='padding:5px'):
+                            div_style = (f'min-height:{img_height}px;'
+                                         f'width:{img_width}px;'
+                                         f'background-image: url(\'{img}\');'
+                                          'background-position: center;'
+                                          'background-repeat: no-repeat;'
+                                          'background-size: contain;'
+                                         f'{base_div_style}')
+                            self.html.div(style=div_style, _t=i+1)
 
         return self.uglify()
