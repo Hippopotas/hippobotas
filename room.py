@@ -34,9 +34,10 @@ class Room:
             return
 
         is_dex = True if 'mangadex' in categories else False
+        anagrams = True if 'anagrams' in categories else False
 
         try:
-            await self.trivia.start(n, diff, categories, excludecats, by_rating, is_dex=is_dex)
+            await self.trivia.start(n, diff, categories, excludecats, by_rating, is_dex=is_dex, anagrams=anagrams)
 
             for _ in range(n):
                 await asyncio.sleep(5)

@@ -166,48 +166,6 @@ def trivia_arg_parser(s):
     return args
 
 
-def check_answer(guess, answers):
-    '''
-    Checks if a guess is correct for a trivia question.
-
-    Args:
-        guess (str): The raw guess
-        answers (str list): Base list of acceptable answers 
-    
-    Returns:
-        An empty string if the guess is incorrect, else the matching answer
-        from answers.
-    '''
-    t_guess = find_true_name(guess)
-
-    for answer in answers:
-        t_answer = find_true_name(answer)
-        if (t_guess == t_answer) or (t_answer in t_guess):
-            return answer
-
-        # The heuristic for generating aliases for the answers is as follows -
-        # given an answer, valid prefixes consist of whole alphanumeric chunks
-        # (separated by non-alphanumeric chars), starting from the beginning of
-        # the answer. If the guess matches any of these prefixes, and is at least
-        # 8 characters long, it is counted as correct.
-        answer_parts = re.findall('([a-zA-Z0-9]+)', answer)
-        acceptable = []
-        total=''
-        for part in answer_parts:
-            total += part.lower()
-            if len(total) >= 8:
-                acceptable.append(total)
-        
-        if ":" in answer:
-            prefix = answer.split(':')[0]
-            acceptable.append(find_true_name(prefix))
-
-        if t_guess in acceptable:
-            return answer
-
-    return ''
-
-
 class Bot:
     def __init__(self):
         load_dotenv()
@@ -1383,7 +1341,8 @@ class Bot:
 
         
         # Trivia
-        elif command[0] == 'trivia' and not pm:
+
+        elif (command[0] == 'trivia' or command[0] == 'anagrams') and not pm:
             if len(command) < 2:
                 return
 
@@ -1402,6 +1361,12 @@ class Bot:
                         args.quizbowl = None
                     if not args.quizbowl and room == const.SCHOL_ROOM:
                         args.quizbowl = True
+                    if command[0] == 'anagrams':
+                        if args.quizbowl:
+                            args.quizbowl = None
+                        args.categories.append('anagrams')
+                        if args.autoskip == 15:
+                            args.autoskip = 45
                 if not args:
                     msg = 'Invalid parameters. Trivia not started.'
                 elif args.quizbowl:
@@ -1474,13 +1439,10 @@ class Bot:
                 answer_check = ''
                 # Anime/manga/video game titles have a lot of different colloquial names.
                 # Those rooms are more flexible in accepting answers.
-                if room == const.ANIME_ROOM or room == const.VG_ROOM or room == const.SCHOL_ROOM:
-                    answer_check = check_answer(''.join(command[1:]), trivia_game.answers)
-                else:
-                    for answer in trivia_game.answers:
-                        if find_true_name(answer) == find_true_name(''.join(command[1:])):
-                            answer_check = answer
-                            break
+                is_exact = False if room in [const.ANIME_ROOM, const.VG_ROOM, const.SCHOL_ROOM] else True
+                is_exact = True if self.roomlist[room].trivia.anagrams else is_exact
+                answer_check = check_answer(''.join(command[1:]), trivia_game.answers, exact=is_exact)
+
                 if answer_check:
                     msg = f'{caller} wins.'
                     if true_caller == self.username:

@@ -33,6 +33,66 @@ def censor_quizbowl(title, question):
     return ' '.join(split_question)
 
 
+def anagram_scramble(answer):
+    to_scramble = answer.split()
+    for i, word in enumerate(to_scramble):
+        sw = list(word.lower())
+        while ''.join(sw) == word.lower():
+            random.shuffle(sw)
+            print(sw)
+            if len(set(sw)) <= 1:
+                break
+        to_scramble[i] = ''.join(sw)
+
+    return ' '.join(to_scramble)
+
+
+def check_answer(guess, answers, exact=False):
+    '''
+    Checks if a guess is correct for a trivia question.
+
+    Args:
+        guess (str): The raw guess
+        answers (str list): Base list of acceptable answers 
+    
+    Returns:
+        An empty string if the guess is incorrect, else the matching answer
+        from answers.
+    '''
+    t_guess = find_true_name(guess)
+
+    for answer in answers:
+        t_answer = find_true_name(answer)
+        if (t_guess == t_answer):
+            return answer
+        elif exact:
+            continue
+        elif t_answer in t_guess:
+            return answer
+
+        # The heuristic for generating aliases for the answers is as follows -
+        # given an answer, valid prefixes consist of whole alphanumeric chunks
+        # (separated by non-alphanumeric chars), starting from the beginning of
+        # the answer. If the guess matches any of these prefixes, and is at least
+        # 8 characters long, it is counted as correct.
+        answer_parts = re.findall('([a-zA-Z0-9]+)', answer)
+        acceptable = []
+        total=''
+        for part in answer_parts:
+            total += part.lower()
+            if len(total) >= 8:
+                acceptable.append(total)
+        
+        if ":" in answer:
+            prefix = answer.split(':')[0]
+            acceptable.append(find_true_name(prefix))
+
+        if t_guess in acceptable:
+            return answer
+
+    return ''
+
+
 class TriviaGame:
     def __init__(self, room):
         self.active = False
@@ -99,8 +159,10 @@ class TriviaGame:
             self.scoreboard = timer
 
     async def start(self, n=10, diff=BASE_DIFF, categories=['all'],
-                    excludecats=False, by_rating=False, quizbowl=False, is_dex=False):
+                    excludecats=False, by_rating=False,
+                    quizbowl=False, is_dex=False, anagrams=False):
         self.active = True
+        self.anagrams = anagrams
         self.reset_scoreboard()
 
         if diff > 10:
@@ -112,7 +174,7 @@ class TriviaGame:
         self.questions.excludecats = excludecats
         self.questions.by_rating = by_rating
 
-        asyncio.create_task(self.questions.gen_list(n=n, quizbowl=quizbowl, is_dex=is_dex),
+        asyncio.create_task(self.questions.gen_list(n=n, quizbowl=quizbowl, is_dex=is_dex, anagrams=anagrams),
                             name='tquestions-{}'.format(self.room))
 
     def update_scores(self, user):
@@ -165,7 +227,7 @@ class QuestionList:
         self.questions = asyncio.Queue()
         self.series_exist = True
 
-    async def gen_list(self, n, quizbowl=False, is_dex=False):
+    async def gen_list(self, n, quizbowl=False, is_dex=False, anagrams=False):
         self.num_qs = n
         async with aiohttp.ClientSession() as session:
             if self.room == const.ANIME_ROOM:
@@ -175,7 +237,7 @@ class QuestionList:
                     elif quizbowl:
                         await self.gen_am_qbowl_question(session)
                     else:
-                        await self.gen_am_question(session)
+                        await self.gen_am_question(session, anagrams=anagrams)
 
             elif self.room == const.LEAGUE_ROOM:
                 for _ in range(n):
@@ -199,7 +261,7 @@ class QuestionList:
                     if quizbowl:
                         await self.gen_vg_qbowl_question(vg_database)
                     else:
-                        await self.gen_vg_question(vg_database)
+                        await self.gen_vg_question(vg_database, anagrams=anagrams)
 
     def duplicate_check(self, d):
         for base in self.q_bases:
@@ -408,15 +470,22 @@ class QuestionList:
                     'genre': genre_code,
                     'rank': rank}
 
-    async def gen_am_question(self, session):
+    async def gen_am_question(self, session, anagrams=False):
         base = await self.gen_am_base(session)
         while self.duplicate_check({k:base[k] for k in ('medium', 'sub_medium', 'genre', 'rank') if k in base}):
             base = await self.gen_am_base(session)
-        
+
         self.q_bases.append({k:base[k] for k in ('medium', 'sub_medium', 'genre', 'rank') if k in base})
 
+        if anagrams:
+            answer = base['answers'][0]
+            scrambled = anagram_scramble(answer)
+
+            await self.questions.put([f'/announce Unscramble this: **{scrambled}**', [answer]])
+            return
+
         img_url = gen_uhtml_img_code(base['img_url'], height_resize=PIC_SIZE)
-        
+
         await self.questions.put(['/adduhtml {}, {}'.format(UHTML_NAME, img_url),
                                   base['answers']])
 
@@ -612,8 +681,15 @@ class QuestionList:
 
         await self.questions.put([question, [vidya['name'], vidya['slug']]])
 
-    async def gen_vg_question(self, vg_database):
+    async def gen_vg_question(self, vg_database, anagrams=False):
         vidya = self.gen_vg_base(vg_database)
+
+        if anagrams:
+            answer = vidya['name']
+            scrambled = anagram_scramble(answer)
+
+            await self.questions.put([f'/announce Unscramble this: **{scrambled}**', [answer]])
+            return
 
         screenshot_url = 'https:' + random.choice(vidya['screenshots'])['url']
         screenshot_url = screenshot_url.replace('t_thumb', 't_original')
