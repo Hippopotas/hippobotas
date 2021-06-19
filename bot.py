@@ -2,7 +2,9 @@ import aiohttp
 import argparse
 import asyncio
 import datetime
+import discord
 import json
+import logging
 import numpy as np
 import os
 import pandas as pd
@@ -13,6 +15,7 @@ import shlex
 import time
 import websockets
 
+from discord.ext import commands
 from dotenv import load_dotenv
 
 import common.constants as const
@@ -24,6 +27,7 @@ from common.steam import set_steam_user, show_steam_user, steam_user_rand_series
 from common.tcg import display_mtg_card, display_ptcg_card, display_ygo_card
 from common.utils import find_true_name, gen_uhtml_img_code, trivia_leaderboard_msg
 from room import Room
+from trivia import check_answer
 from user import User
 
 PS_SOCKET = 'ws://sim.smogon.com:8000/showdown/websocket'
@@ -33,7 +37,8 @@ JOINLIST = [const.ANIME_ROOM,
             const.VG_ROOM,
             const.PEARY_ROOM,
             const.GACHA_ROOM,
-            const.SCHOL_ROOM]
+            const.SCHOL_ROOM,
+            const.SPORTS_ROOM]
 WS = None
 
 
@@ -171,6 +176,7 @@ class Bot:
         load_dotenv()
         self.username = os.getenv('PS_USERNAME')
         self.password = os.getenv('PS_PASSWORD')
+        self.discord_token = os.getenv('DISCORD_TOKEN')
         self.birthdays = json.load(open(const.BIRTHDAYFILE))
         self.calendar = json.load(open(const.CALENDARFILE))
         self.sucklist = pd.read_csv(const.SUCKFILE)
@@ -200,6 +206,22 @@ class Bot:
         self.steam_rooms = [const.VG_ROOM, const.PEARY_ROOM]
 
         self.get_igdb_token()
+
+
+    def reconnect(self, restart=True):
+        '''
+        Wrapper for reconnect calls from within the bot.
+        '''
+        start_bot(restart=restart, timer=10)
+
+
+    async def monitor_discord(self):
+        '''
+        Spin up the discord connection to listen to manual restarts.
+        '''
+        discord_bot = DiscordBot()
+        discord_bot.add_cog(DiscordReconnecter(discord_bot))
+        await discord_bot.start(self.discord_token)
 
 
     def get_igdb_token(self):
@@ -346,7 +368,7 @@ class Bot:
                 async for msg in ws:
                     await self.incoming.put(msg)
         except:
-            start_bot(restart=True)
+            self.reconnect()
 
 
     async def interpreter(self):
@@ -688,7 +710,7 @@ class Bot:
 
         if not logged_in:
             print("Not logged in.")
-            start_bot(restart=True)
+            self.reconnect()
 
         if re.sub(r'\W+', '', name) == re.sub(r'\W+', '', self.username):
             await self.outgoing.put('|/avatar 97')
@@ -1632,18 +1654,48 @@ class Bot:
                 print('Sending: ')
                 print(msg)
                 await WS.send(msg)
-                await asyncio.sleep(0.08)
+                await asyncio.sleep(0.1)
         except:
-            start_bot(restart=True)
+            self.reconnect()
 
 
-def start_bot(restart=True):
+class DiscordBot(discord.ext.commands.Bot):
+    def __init__(self):
+        intents = discord.Intents.default()
+        intents.reactions = True
+        intents.messages = True
+
+        super().__init__(command_prefix=']', intents=intents)
+        self.logger = logging.getLogger('discord')
+
+    async def on_ready(self):
+        self.logger.info(f'Client logged in as {self.user}.')
+
+    def reconnect(self):
+        start_bot()
+
+
+class DiscordReconnecter(commands.Cog):
+    def __init__(self, bot):
+        self.bot = bot
+
+    @commands.command(brief='Forces the PS bot to reconnect.')
+    @commands.has_any_role('Moderator', 'Owner', 'Driver')
+    @commands.guild_only()
+    async def restart_ps(self, ctx):
+        await ctx.message.add_reaction('👀')
+        self.bot.reconnect()
+
+
+def start_bot(restart=True, timer=0):
     loop = asyncio.get_event_loop()
+
     if restart:
-        print('Restarting. Waiting 30 seconds...')
         for task in asyncio.all_tasks():
             task.cancel()
-        time.sleep(30)
+
+    print(f'Restarting. Waiting {timer} seconds...')
+    time.sleep(timer)
 
     loop.set_debug(True)
     bot = Bot()
@@ -1653,8 +1705,11 @@ def start_bot(restart=True):
     loop.create_task(bot.interpreter())
     loop.create_task(bot.sender())
     loop.create_task(bot.start_repeats())
+    loop.create_task(bot.monitor_discord())
     loop.run_forever()
 
 
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO)
+
     start_bot(restart=False)
