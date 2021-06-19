@@ -539,7 +539,7 @@ class Bot:
             if parts[1] == 'pm':
                 is_pm = True
                 caller = parts[2]
-            await self.command_center(curr_room, caller, parts[4], pm=is_pm)
+            asyncio.create_task(self.command_center(curr_room, caller, parts[4], pm=is_pm))
 
         # Trivia guesses
         elif parts[1] == 'c:':
@@ -551,7 +551,7 @@ class Bot:
             
             # ]tg is/was also a valid invocation for guessing. This is a neat shortcut.
             if t_active:
-                await self.command_center(curr_room, parts[3], ']tg {}'.format(parts[4]))
+                asyncio.create_task(self.command_center(curr_room, parts[3], ']tg {}'.format(parts[4])))
 
 
     async def battle_handler(self, msg, curr_room, parts):
