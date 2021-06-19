@@ -22,6 +22,7 @@ import common.constants as const
 
 from battle import Battle
 from gacha import GachaManager
+from commands import *
 from common.mal import set_mal_user, show_mal_user, mal_user_rand_series, mal_search
 from common.steam import set_steam_user, show_steam_user, steam_user_rand_series
 from common.tcg import display_mtg_card, display_ptcg_card, display_ygo_card
@@ -909,21 +910,22 @@ class Bot:
         if not command:
             return
 
+        cmd_kwargs = {'full_command': command,
+                      'room': room,
+                      'caller': caller,
+                      'is_pm': pm,
+                      'pm_only': False,
+                      'room_only': False,
+                      'min_args': -1,
+                      'max_args': 9999,
+                      'usage_msg': '',
+                      'req_rank': ' ',
+                      'allowed_rooms': list(self.roomlist)}
+
         # General commands
-        if command[0] == 'help':
-            msg = 'o3o https://pastebin.com/raw/LxnMv5hA o3o'
-        elif command[0] == 'dab':
-            msg = '/me dabs'
-        elif command[0] == 'owo':
-            msg = 'uwu'
-        elif command[0] == 'google':
-            msg = 'Don\'t be mad someone is faster at googling than you :3c'
-        elif command[0] == 'joogle':
-            msg = 'Don\'t be mad someone is faster at joogling than you :3c'
-        elif command[0] == 'bing':
-            msg = 'Have you heard of google?'
-        elif command[0] == 'jing':
-            msg = 'Have you heard of joogle?'
+        if command[0] in const.SIMPLE_COMMANDS:
+            cmd_obj = SimpleCommand(**cmd_kwargs)
+            msg = cmd_obj.evaluate()
 
         elif command[0] == 'plebs' and User.compare_ranks(caller[0], '+'):
             uhtml = gen_uhtml_img_code(const.PLEB_URL, height_resize=250)
@@ -1174,9 +1176,6 @@ class Bot:
                 msg = f'{wpm_user} - Top speed: {top_wpm} WPM. Average of past {run_count} runs: {avg_wpm} WPM.'
 
         # animeandmanga
-        elif command[0] == 'jibun' and room == const.ANIME_ROOM:
-            msg = '/announce JIBUN WOOOOOOOOOO'
-
         elif command[0] == 'anime' and room == const.ANIME_ROOM and User.compare_ranks(caller[0], '+'):
             if len(command) > 1:
                 query = ' '.join(command[1:])

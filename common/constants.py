@@ -12,6 +12,8 @@ TCG_ROOM = 'tcgtabletop'
 VG_ROOM = 'videogames'
 PEARY_ROOM = 'bikinibottom'
 
+SIMPLE_COMMANDS = ['help', 'dab', 'owo', 'google', 'joogle', 'bing', 'jing', 'jibun']
+
 TIMER_USER = 'T*'
 
 JIKAN_API = 'https://api.jikan.moe/v3/'
