@@ -186,6 +186,7 @@ class Bot:
         self.outgoing = asyncio.Queue()
 
         self.roomlist = {}
+        self.users = {}
 
         self.topics = json.load(open(const.TOPICFILE))
         self.banlists = json.load(open(const.BANLISTFILE))
@@ -318,6 +319,28 @@ class Bot:
             self.gachaman.add_rolls()
 
 
+    async def get_userinfo(self, true_user):
+        '''
+        Gets userinfo from cached dict or queries PS
+        for it if it does not exist.
+
+        Args:
+            true_user (str): user to get rooms and ranks for
+        '''
+
+        if true_user not in self.users:
+            self.users[true_user] = {'group': None,
+                                     'rooms': None,
+                                     'event': asyncio.Event()}
+
+            await self.outgoing.put(f'|/cmd userdetails {true_user}')
+
+            await self.users[true_user]['event'].wait()
+            self.users[true_user]['event'].clear()
+
+        return self.users[true_user]
+
+
     async def wpm(self, true_user):
         '''
         Starts a typing test for a user. Takes from typeracer database.
@@ -406,6 +429,16 @@ class Bot:
             print('!!! SEE THIS !!!')
             print(parts)
             return
+
+        # Query Responses
+        if parts[1] == 'queryresponse':
+            print(parts)
+            if parts[2] == 'userdetails':
+                userinfo = json.loads(parts[3])
+                true_name = userinfo['userid']
+                self.users[true_name]['group'] = userinfo['group']
+                self.users[true_name]['rooms'] = userinfo['rooms']
+                self.users[true_name]['event'].set()
 
         # Managing room userlists
         if parts[1] == 'init' and 'chat' in parts[2]:
@@ -910,9 +943,21 @@ class Bot:
         if not command:
             return
 
+        userinfo = await self.get_userinfo(true_caller)
+        userrank = userinfo['group']
+        if not pm:
+            for r in userinfo['rooms']:
+                if r[1:] == room:
+                    if User.compare_ranks(room[0], userrank):
+                        userrank = room[0]
+                    break
+
+
         cmd_kwargs = {'full_command': command,
                       'room': room,
                       'caller': caller,
+                      'true_caller': true_caller,
+                      'caller_rank': userrank,
                       'is_pm': pm,
                       'pm_only': False,
                       'room_only': False,
@@ -1629,7 +1674,7 @@ class Bot:
             msg = f'Laddering is now {self.allow_laddering}.'
 
         elif command[0] == 'test' and true_caller == const.OWNER:
-            await self.outgoing.put('|/roomauth yfc')
+            await self.outgoing.put('|/cmd userdetails hippopotas')
             return
 
         if msg == '':
