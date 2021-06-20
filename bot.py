@@ -263,6 +263,7 @@ class Bot:
         asyncio.create_task(self.ping_connect(), name='ping-connect')
         asyncio.create_task(self.birthday_repeater(), name='birthdays')
         asyncio.create_task(self.gacha_repeater(), name='gacha-repeat')
+        asyncio.create_task(self.user_repeater(), name='user-repeat')
 
 
     async def ping_connect(self):
@@ -333,12 +334,32 @@ class Bot:
                                      'rooms': None,
                                      'event': asyncio.Event()}
 
+        if not self.users[true_user]['group']:
             await self.outgoing.put(f'|/cmd userdetails {true_user}')
 
             await self.users[true_user]['event'].wait()
             self.users[true_user]['event'].clear()
 
         return self.users[true_user]
+
+
+    async def user_repeater(self):
+        '''
+        Repeating process for updating user list.
+
+        Args:
+        '''
+        while True:
+            now = datetime.datetime.now()
+            next_hour = (now + datetime.timedelta(hours=3)).replace(second=0, minute=1)
+            sleep_len = (next_hour - now).seconds
+
+            await asyncio.sleep(sleep_len)
+            # Potential race condition vs bot startup should
+            # be fine given the above sleep delay.
+            for u in self.users:
+                self.users[u]['group'] = None
+                await self.get_userinfo(u)
 
 
     async def wpm(self, true_user):
