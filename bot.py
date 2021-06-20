@@ -179,7 +179,6 @@ class Bot:
         self.password = os.getenv('PS_PASSWORD')
         self.discord_token = os.getenv('DISCORD_TOKEN')
         self.birthdays = json.load(open(const.BIRTHDAYFILE))
-        self.calendar = json.load(open(const.CALENDARFILE))
         self.sucklist = pd.read_csv(const.SUCKFILE)
 
         self.incoming = asyncio.Queue()
@@ -974,7 +973,8 @@ class Bot:
                     break
 
 
-        cmd_kwargs = {'full_command': command,
+        cmd_kwargs = {'bot': self,
+                      'full_command': command,
                       'room': room,
                       'caller': caller,
                       'true_caller': true_caller,
@@ -988,27 +988,30 @@ class Bot:
                       'req_rank': ' ',
                       'allowed_rooms': list(self.roomlist)}
 
-        # General commands
+        cmd_obj = None  # Remove when all commands are refactored
+
         if command[0] in const.SIMPLE_COMMANDS:
             cmd_obj = SimpleCommand(**cmd_kwargs)
-            msg = cmd_obj.evaluate()
 
-        elif command[0] == 'plebs' and User.compare_ranks(caller[0], '+'):
-            uhtml = gen_uhtml_img_code(const.PLEB_URL, height_resize=250)
-            msg = f'/adduhtml hippo-pleb, {uhtml}'
+        elif command[0] in const.UHTML_COMMANDS:
+            cmd_kwargs['req_rank'] = '+'
+            cmd_kwargs['room_only'] = True
 
-        elif command[0] == 'calendar' and User.compare_ranks(caller[0], '+'):
-            curr_day = datetime.date.today()
-            curr_day_str = curr_day.strftime('%B') + ' ' + str(curr_day.day)
-            date_imgs = self.calendar[curr_day_str]
+            if command[0] == 'birthday':
+                cmd_kwargs['allowed_rooms'] = [const.ANIME_ROOM]
 
-            uhtml = gen_uhtml_img_code(random.choice(date_imgs), height_resize=200)
-            msg = f'/adduhtml hippo-calendar, {uhtml}'
-        
-        elif command[0] == 'birthday' and not pm and User.compare_ranks(caller[0], '+'):
-            await self.send_birthday_text(automatic=False, ctx=room)
+            cmd_obj = UhtmlCommand(**cmd_kwargs)
 
-        elif command[0] == 'topic' and not pm:
+        elif command[0] in const.MODIFY_COMMANDS:
+            cmd_kwargs['req_rank'] = '%'
+            cmd_kwargs['min_args'] = 1
+            cmd_obj = ModifyCommand(**cmd_kwargs)
+
+        if cmd_obj: # Remove when all commands are refactored
+            msg = await cmd_obj.evaluate()
+
+
+        if command[0] == 'topic' and not pm:
             if room not in self.topics:
                 self.topics[room] = {}
             

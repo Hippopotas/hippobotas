@@ -1,18 +1,19 @@
+import json
+import random
+
 import common.constants as const
 
-from common.utils import find_true_name
+from common.utils import find_true_name, gen_uhtml_img_code, curr_cal_date
 from user import User
 
 
 class Command():
     def __init__(self, **kwargs):
-#       full_command, room, caller, is_pm, pm_only, room_only,
+#       bot, full_command, room, caller, is_pm, pm_only, room_only,
 #       usage_msg, req_rank, allowed_rooms, min_args, max_args, req_rank
         for k, v in kwargs.items():
             setattr(self, k, v)
 
-        self.caller_rank = self.caller[0]
-        self.true_caller = find_true_name(self.caller)
         self.command = self.full_command[0]
         self.args = self.full_command[1:]
 
@@ -66,7 +67,7 @@ class SimpleCommand(Command):
             self.room_only = True
 
 
-    def evaluate(self):
+    async def evaluate(self):
         if not self.is_eligible():
             return self.msg
 
@@ -87,4 +88,93 @@ class SimpleCommand(Command):
         elif self.command == 'jibun':
             self.msg = '/announce JIBUN WOOOOOOOOOO'
 
+        return self.msg
+
+
+class UhtmlCommand(Command):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+
+
+    async def evaluate(self):
+        if not self.is_eligible():
+            return self.msg
+
+        if self.command == 'plebs':
+            uhtml = gen_uhtml_img_code(const.PLEB_URL, height_resize=250)
+            self.msg = f'/adduhtml hippo-pleb, {uhtml}'
+        elif self.command == 'calendar':
+            curr_day_str = curr_cal_date()
+            calendar = json.load(open(const.CALENDARFILE))
+
+            if self.room not in calendar:
+                calendar[self.room] = {curr_day_str: []}
+                json.dump(calendar, open(const.CALENDARFILE, 'w', indent=4))
+            if not calendar[self.room][curr_day_str]:
+                return 'No images found for this date.'
+
+            date_imgs = calendar[self.room][curr_day_str]
+            uhtml = gen_uhtml_img_code(random.choice(date_imgs), height_resize=200)
+            self.msg = f'/adduhtml hippo-calendar, {uhtml}'
+        elif self.command == 'birthday':
+            await self.bot.send_birthday_text(automatic=False)
+
+
+        return self.msg
+
+
+class ModifyCommand(Command):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+
+        if 'emote' in self.command:
+            self.req_rank = '#'
+
+
+    async def evaluate(self):
+        if not self.is_eligible():
+            return self.msg
+
+        if self.is_pm and self.num_args > 1:
+            if self.args[1] in self.allowed_rooms:
+                self.room = self.args[1]
+            elif self.args[1] == 'anime' or self.args[1] == 'manga':
+                self.room = 'animeandmanga'
+
+        if not self.room:
+            return 'Please specify a valid room.'
+
+        if 'calendar' in self.command:
+            self.file = const.CALENDARFILE
+        elif 'emote' in self.command:
+            self.file = const.EMOTEFILE
+        elif 'topic' in self.command:
+            self.file = const.TOPICFILE
+        elif 'bl' in self.command:
+            self.file = const.BANLISTFILE
+
+        if self.action == 'set':
+            return self.evaluate_set()
+        elif self.action == 'remove':
+            return self.evaluate_rm()
+
+
+    def evaluate_set(self):
+        info_json = json.load(open(self.file))
+
+        if 'calendar' in self.command:
+            curr_day_str = curr_cal_date()
+
+            if self.room not in info_json:
+                info_json[self.room] = {curr_day_str: []}
+
+            info_json[self.room][curr_day_str].append(self.args[0])
+            json.dump(info_json, open(self.file, 'w'), indent=4)
+            self.msg = f'Added {self.args[0]} to {self.room}\'s calendar.'
+
+        return self.msg
+
+
+    def evaluate_rm(self):
+        info_json = json.load(open(self.file))
         return self.msg

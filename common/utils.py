@@ -1,3 +1,4 @@
+import datetime
 import re
 
 from PIL import ImageFile
@@ -103,3 +104,10 @@ def monospace_table_row(text_list, delimiter='|'):
     row_str = row_str[:del_len]
 
     return row_str
+
+
+def curr_cal_date():
+    """ Returns the current calendar date in a form e.g. Jan 1
+    """
+    curr_day = datetime.date.today()
+    return curr_day.strftime('%B') + ' ' + str(curr_day.day)

@@ -13,6 +13,8 @@ VG_ROOM = 'videogames'
 PEARY_ROOM = 'bikinibottom'
 
 SIMPLE_COMMANDS = ['help', 'dab', 'owo', 'google', 'joogle', 'bing', 'jing', 'jibun']
+UHTML_COMMANDS = ['plebs', 'calendar', 'birthday']
+MODIFY_COMMANDS = ['calendar_add']
 
 TIMER_USER = 'T*'
 
