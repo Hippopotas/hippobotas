@@ -456,8 +456,10 @@ class Bot:
             if parts[2] == 'userdetails':
                 userinfo = json.loads(parts[3])
                 true_name = userinfo['userid']
-                self.users[true_name]['group'] = userinfo['group']
-                self.users[true_name]['rooms'] = userinfo['rooms']
+                if 'group' in userinfo:
+                    self.users[true_name]['group'] = userinfo['group']
+                if userinfo['rooms']:
+                    self.users[true_name]['rooms'] = userinfo['rooms']
                 self.users[true_name]['event'].set()
 
         # Managing room userlists
