@@ -39,7 +39,6 @@ def anagram_scramble(answer):
         sw = list(word.lower())
         while ''.join(sw) == word.lower():
             random.shuffle(sw)
-            print(sw)
             if len(set(sw)) <= 1:
                 break
         to_scramble[i] = ''.join(sw)

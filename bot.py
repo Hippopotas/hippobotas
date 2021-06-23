@@ -187,7 +187,6 @@ class Bot:
         self.roomlist = {}
         self.users = {}
 
-        self.topics = json.load(open(const.TOPICFILE))
         self.banlists = json.load(open(const.BANLISTFILE))
         self.room_emotes = json.load(open(const.EMOTEFILE))
 
@@ -350,7 +349,7 @@ class Bot:
         '''
         while True:
             now = datetime.datetime.now()
-            next_hour = (now + datetime.timedelta(hours=3)).replace(second=0, minute=1)
+            next_hour = (now + datetime.timedelta(hours=6)).replace(second=0, minute=1)
             sleep_len = (next_hour - now).seconds
 
             await asyncio.sleep(sleep_len)
@@ -452,7 +451,6 @@ class Bot:
 
         # Query Responses
         if parts[1] == 'queryresponse':
-            print(parts)
             if parts[2] == 'userdetails':
                 userinfo = json.loads(parts[3])
                 true_name = userinfo['userid']
@@ -461,6 +459,8 @@ class Bot:
                 if userinfo['rooms']:
                     self.users[true_name]['rooms'] = userinfo['rooms']
                 self.users[true_name]['event'].set()
+            else:
+                print(parts)
 
         # Managing room userlists
         if parts[1] == 'init' and 'chat' in parts[2]:
@@ -966,25 +966,17 @@ class Bot:
             return
 
         userinfo = await self.get_userinfo(true_caller)
-        userrank = userinfo['group']
-        if not pm:
-            for r in userinfo['rooms']:
-                if r[1:] == room:
-                    if User.compare_ranks(room[0], userrank):
-                        userrank = room[0]
-                    break
-
 
         cmd_kwargs = {'bot': self,
                       'full_command': command,
                       'room': room,
                       'caller': caller,
                       'true_caller': true_caller,
-                      'caller_rank': userrank,
+                      'caller_info': userinfo,
                       'is_pm': pm,
                       'pm_only': False,
                       'room_only': False,
-                      'min_args': -1,
+                      'min_args': 0,
                       'max_args': 9999,
                       'usage_msg': '',
                       'req_rank': ' ',
@@ -1007,29 +999,20 @@ class Bot:
         elif command[0] in const.MODIFY_COMMANDS:
             cmd_kwargs['req_rank'] = '%'
             cmd_kwargs['min_args'] = 1
+
+            if pm:
+                cmd_kwargs['min_args'] += 1
+
             cmd_obj = ModifyCommand(**cmd_kwargs)
+
+        elif command[0] in ['topic', 'topic_list', 'topic_rm']:
+            cmd_kwargs['file'] = const.TOPICFILE
+            cmd_kwargs['usage_msg'] = f']{command[0]} '
+            cmd_obj = TopicCommand(**cmd_kwargs)
 
         if cmd_obj: # Remove when all commands are refactored
             msg = await cmd_obj.evaluate()
 
-
-        if command[0] == 'topic' and not pm:
-            if room not in self.topics:
-                self.topics[room] = {}
-            
-            if 'current' not in self.topics[room]:
-                self.topics[room]['current'] = ''
-
-            if len(command) > 1 and User.compare_ranks(caller[0], '%'):
-                self.topics[room]['current'] = ' '.join(command[1:])
-
-            curr_topic = self.topics[room]['current']
-            if not curr_topic:
-                msg = '/announce No topic right now! Feel free to set one.'
-            else:
-                msg = f'/announce {curr_topic}'
-
-            json.dump(self.topics, open(const.TOPICFILE, 'w'), indent=4)
 
         # Banlists
         elif command[0] == 'bl_add':
@@ -1700,7 +1683,7 @@ class Bot:
             msg = f'Laddering is now {self.allow_laddering}.'
 
         elif command[0] == 'test' and true_caller == const.OWNER:
-            await self.outgoing.put('|/cmd userdetails hippopotas')
+            await self.outgoing.put('|/w hippopotas, /announce test')
             return
 
         if msg == '':

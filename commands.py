@@ -14,6 +14,8 @@ class Command():
         for k, v in kwargs.items():
             setattr(self, k, v)
 
+        self.caller_rank = self.caller_info['group']
+
         self.command = self.full_command[0]
         self.args = self.full_command[1:]
 
@@ -38,7 +40,7 @@ class Command():
             return False
 
         if self.room not in self.allowed_rooms:
-            self.msg = ''
+            self.msg = f'{self.room} is not a legal room for this command.'
             return False
 
         if self.is_pm and self.room_only:
@@ -58,6 +60,11 @@ class Command():
         return True
 
 
+    async def pm_msg(self, message):
+        if message:
+            await self.bot.outgoing.put(f'|/w {self.true_caller}, {message}')
+
+
 class SimpleCommand(Command):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -69,7 +76,8 @@ class SimpleCommand(Command):
 
     async def evaluate(self):
         if not self.is_eligible():
-            return self.msg
+            await self.pm_msg(self.msg)
+            return ''
 
         if self.command == 'help':
             self.msg = 'o3o https://pastebin.com/raw/LxnMv5hA o3o'
@@ -98,7 +106,8 @@ class UhtmlCommand(Command):
 
     async def evaluate(self):
         if not self.is_eligible():
-            return self.msg
+            await self.pm_msg(self.msg)
+            return ''
 
         if self.command == 'plebs':
             uhtml = gen_uhtml_img_code(const.PLEB_URL, height_resize=250)
@@ -123,58 +132,69 @@ class UhtmlCommand(Command):
         return self.msg
 
 
-class ModifyCommand(Command):
+class ModifiableCommand(Command):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
 
-        if 'emote' in self.command:
-            self.req_rank = '#'
+        if self.is_pm:
+            self.min_args += 1
+            
+            if self.args:
+                self.room = self.args[0]
+
+                for r in self.caller_info['rooms']:
+                    if r[1:] == self.room:
+                        if User.compare_ranks(r[0], self.caller_rank):
+                            self.caller_rank = r[0]
+                        break
+
+
+class TopicCommand(ModifiableCommand):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+
+        if 'list' in self.command:
+            self.req_rank = '+'
+            self.usage_msg += '[ROOM]'
+        elif 'rm' in self.command:
+            self.req_rank = '%'
+            self.min_args += 1
+            self.usage_msg += '[ROOM] TOPIC_ID'
+        elif self.command == 'topic':
+            if self.num_args:
+                self.req_rank = '%'
+                self.min_args += 1
+                self.usage_msg += '[ROOM] TOPIC_TEXT'
+            else:
+                self.usage_msg += '(use in a room)'
 
 
     async def evaluate(self):
         if not self.is_eligible():
-            return self.msg
+            await self.pm_msg(self.msg)
+            return
 
-        if self.is_pm and self.num_args > 1:
-            if self.args[1] in self.allowed_rooms:
-                self.room = self.args[1]
-            elif self.args[1] == 'anime' or self.args[1] == 'manga':
-                self.room = 'animeandmanga'
+        json_info = json.load(open(self.file))
+        if self.room not in json_info:
+            json_info[self.room] = {'current': '', 'random': []}
+        room_topics = json_info[self.room]
 
-        if not self.room:
-            return 'Please specify a valid room.'
+        if self.command == 'topic':
+            if self.num_args:
+                new_topic = ' '.join(self.args)
+                if self.is_pm:
+                    new_topic = ' '.join(self.args[1:])
+                room_topics['current'] = new_topic
 
-        if 'calendar' in self.command:
-            self.file = const.CALENDARFILE
-        elif 'emote' in self.command:
-            self.file = const.EMOTEFILE
-        elif 'topic' in self.command:
-            self.file = const.TOPICFILE
-        elif 'bl' in self.command:
-            self.file = const.BANLISTFILE
+            curr_topic = room_topics['current']
+            if not curr_topic:
+                self.msg = '/announce No topic right now!'
+            else:
+                self.msg = f'/announce {curr_topic}'
 
-        if self.action == 'set':
-            return self.evaluate_set()
-        elif self.action == 'remove':
-            return self.evaluate_rm()
+        elif self.command == 'topic_list':
+            pass
 
+        json.dump(json_info, open(self.file, 'w'), indent=4)
 
-    def evaluate_set(self):
-        info_json = json.load(open(self.file))
-
-        if 'calendar' in self.command:
-            curr_day_str = curr_cal_date()
-
-            if self.room not in info_json:
-                info_json[self.room] = {curr_day_str: []}
-
-            info_json[self.room][curr_day_str].append(self.args[0])
-            json.dump(info_json, open(self.file, 'w'), indent=4)
-            self.msg = f'Added {self.args[0]} to {self.room}\'s calendar.'
-
-        return self.msg
-
-
-    def evaluate_rm(self):
-        info_json = json.load(open(self.file))
         return self.msg
