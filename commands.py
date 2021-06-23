@@ -15,6 +15,12 @@ class Command():
             setattr(self, k, v)
 
         self.caller_rank = self.caller_info['group']
+        if self.room:
+            for r in self.caller_info['rooms']:
+                if r[1:] == self.room:
+                    if User.compare_ranks(r[0], self.caller_rank):
+                        self.caller_rank = r[0]
+                    break
 
         self.command = self.full_command[0]
         self.args = self.full_command[1:]
@@ -134,19 +140,13 @@ class UhtmlCommand(Command):
 
 class ModifiableCommand(Command):
     def __init__(self, **kwargs):
+        if kwargs['is_pm'] and len(kwargs['full_command']) > 1:
+            kwargs['room'] = kwargs['full_command'][1]
+
         super().__init__(**kwargs)
 
         if self.is_pm:
             self.min_args += 1
-            
-            if self.args:
-                self.room = self.args[0]
-
-                for r in self.caller_info['rooms']:
-                    if r[1:] == self.room:
-                        if User.compare_ranks(r[0], self.caller_rank):
-                            self.caller_rank = r[0]
-                        break
 
 
 class TopicCommand(ModifiableCommand):
@@ -197,4 +197,64 @@ class TopicCommand(ModifiableCommand):
 
         json.dump(json_info, open(self.file, 'w'), indent=4)
 
+        return self.msg
+
+
+class BanlistCommand(ModifiableCommand):
+    def __init__(self, **kwargs):
+        full_cmd = kwargs['full_command']
+        if len(full_cmd) > 1:
+            self.banlist = full_cmd[1]
+            if full_cmd[1] == 'anime' or full_cmd[1] == 'manga':
+                full_cmd[1] = 'animeandmanga'
+
+        super().__init__(**kwargs)
+
+        if self.command == 'bl_add':
+            self.min_args = 2
+            self.usage_msg += 'LIST_TO_MODIFY THING_TO_BAN'
+            self.pm_only = True
+        elif self.command == 'bl_rm':
+            self.min_args = 2
+            self.usage_msg += 'LIST_TO_MODIFY THING_TO_UNBAN'
+            self.pm_only = True
+        elif self.command == 'bl_list':
+            self.min_args = 1
+            self.usage_msg += 'LIST_TO_SEE'
+
+
+    async def evaluate(self):
+        if not self.is_eligible():
+            await self.pm_msg(self.msg)
+            return
+
+        json_info = json.load(open(self.file))
+        if self.banlist not in json_info:
+            await self.pm_msg(f'{self.banlist} is not a recognized banlist.')
+            return
+
+        if self.command == 'bl_add':
+            if self.args[1] in json_info[self.banlist]:
+                await self.pm_msg(f'{self.args[1]} already in {self.banlist} banlist.')
+                return
+            json_info[self.banlist].append(self.args[1])
+            self.msg = f'{self.args[1]} added to {self.banlist} banlist.'
+
+        elif self.command == 'bl_rm':
+            if self.args[1] not in json_info[self.banlist]:
+                await self.pm_msg(f'{self.args[1]} not in {self.banlist} banlist.')
+                return
+            json_info[self.banlist].remove(self.args[1])
+            self.msg = f'{self.args[1]} removed from {self.banlist} banlist.'
+
+        elif self.command == 'bl_list':
+            if self.is_pm:
+                self.msg = f'!code {self.banlist} banlist\n'
+            else:
+                self.msg = (f'/addrankuhtml %, hippo-{self.banlist}bl, '
+                            f'<center>{self.banlist} banlist</center><br>')
+
+            self.msg += ', '.join(json_info[self.banlist])
+
+        json.dump(json_info, open(self.file, 'w'), indent=4)
         return self.msg

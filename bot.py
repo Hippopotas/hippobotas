@@ -187,7 +187,6 @@ class Bot:
         self.roomlist = {}
         self.users = {}
 
-        self.banlists = json.load(open(const.BANLISTFILE))
         self.room_emotes = json.load(open(const.EMOTEFILE))
 
         self.battles = {}
@@ -996,135 +995,21 @@ class Bot:
 
             cmd_obj = UhtmlCommand(**cmd_kwargs)
 
-        elif command[0] in const.MODIFY_COMMANDS:
-            cmd_kwargs['req_rank'] = '%'
-            cmd_kwargs['min_args'] = 1
-
-            if pm:
-                cmd_kwargs['min_args'] += 1
-
-            cmd_obj = ModifyCommand(**cmd_kwargs)
-
         elif command[0] in ['topic', 'topic_list', 'topic_rm']:
             cmd_kwargs['file'] = const.TOPICFILE
             cmd_kwargs['usage_msg'] = f']{command[0]} '
             cmd_obj = TopicCommand(**cmd_kwargs)
 
+        elif command[0] in ['bl_add', 'bl_list', 'bl_rm']:
+            cmd_kwargs['req_rank'] = '%'
+            cmd_kwargs['file'] = const.BANLISTFILE
+            cmd_kwargs['allowed_rooms'] = ['animeandmanga']
+            cmd_kwargs['usage_msg'] = f']{command[0]} '
+            cmd_obj = BanlistCommand(**cmd_kwargs)
+
         if cmd_obj: # Remove when all commands are refactored
             msg = await cmd_obj.evaluate()
 
-
-        # Banlists
-        elif command[0] == 'bl_add':
-            if len(command) != 3:
-                await self.outgoing.put(f'{room}|Invalid syntax. Use ]bl_add category, item_to_ban')
-                return
-
-            has_perms = False
-            list_name = find_true_name(command[1])
-            if pm:
-                if list_name == 'anime' or list_name == 'manga':
-                    user_info = self.roomlist[const.ANIME_ROOM].get_user(caller)
-                    room_rank = ' '
-                    if user_info:
-                        room_rank = user_info.rank
-
-                    if User.compare_ranks(room_rank, '%') or User.compare_ranks(caller[0], '%'):
-                        has_perms = True
-            else:
-                if list_name == 'anime' or list_name == 'manga' and room in self.mal_rooms:
-                    if User.compare_ranks(caller[0], '%'):
-                        has_perms = True
-
-            if has_perms:
-                try:
-                    to_bl = int(command[2])
-                except ValueError:
-                    await self.outgoing.put(f'{room}|Please use the MAL id number of the series to banlist.')
-                    return
-
-                if to_bl in self.banlists[list_name]:
-                    await self.outgoing.put(f'{room}|Series already on banlist.')
-                    return
-
-                async with aiohttp.ClientSession() as session:
-                    async with session.get(f'{const.JIKAN_API}{list_name}/{to_bl}') as r:
-                        resp = await r.text()
-
-                        if r.status != 200:
-                            await self.outgoing.put(f'{room}|Invalid MAL series.')
-                            return
-                        
-                        self.banlists[list_name].append(to_bl)
-                        with open(const.BANLISTFILE, 'w') as f:
-                            json.dump(self.banlists, f, indent=4)
-                        
-                msg = f'Added {to_bl} to {list_name} banlist.'
-
-        elif command[0] == 'bl_remove':
-            if len(command) != 3:
-                await self.outgoing.put(f'{room}|Invalid syntax. Use ]bl_remove category, item_to_unbl')
-                return
-
-            has_perms = False
-            list_name = find_true_name(command[1])
-            if pm:
-                if list_name == 'anime' or list_name == 'manga':
-                    user_info = self.roomlist[const.ANIME_ROOM].get_user(caller)
-                    room_rank = ' '
-                    if user_info:
-                        room_rank = user_info.rank
-
-                    if User.compare_ranks(room_rank, '%') or User.compare_ranks(caller[0], '%'):
-                        has_perms = True
-            else:
-                if list_name == 'anime' or list_name == 'manga' and room in self.mal_rooms:
-                    if User.compare_ranks(caller[0], '%'):
-                        has_perms = True
-
-            if has_perms:
-                try:
-                    to_bl = int(command[2])
-                except ValueError:
-                    await self.outgoing.put(f'{room}|Please enter the MAL id number of the series to un-banlist.')
-                    return
-
-                if to_bl in self.banlists[list_name]:
-                    self.banlists[list_name].remove(to_bl)
-                    with open(const.BANLISTFILE, 'w') as f:
-                        json.dump(self.banlists, f, indent=4)
-                    msg = 'Removed series from banlist.'
-                else:
-                    msg = 'Series not on banlist.'
-
-        elif command[0] == 'bl_list':
-            if len(command) != 2:
-                await self.outgoing.put(f'{room}|Invalid syntax. Use ]bl_list category')
-                return
-
-            has_perms = False
-            list_name = find_true_name(command[1])
-            if pm:
-                if list_name == 'anime' or list_name == 'manga':
-                    user_info = self.roomlist[const.ANIME_ROOM].get_user(caller)
-                    room_rank = ' '
-                    if user_info:
-                        room_rank = user_info.rank
-
-                    if User.compare_ranks(room_rank, '%') or User.compare_ranks(caller[0], '%'):
-                        has_perms = True
-            else:
-                if list_name == 'anime' or list_name == 'manga' and room in self.mal_rooms:
-                    if User.compare_ranks(caller[0], '%'):
-                        has_perms = True
-
-            if not pm:
-                pm = True
-                room = ''
-
-            msg = 'Category not found.'
-            if list_name in self.banlists and has_perms:
-                msg = f'{list_name} banlist: {json.dumps(self.banlists[list_name])}'
 
         # Emotes
         elif (command[0] == 'emote_set' or command[0] == 'emote_add') and User.compare_ranks(caller[0], '#'):
