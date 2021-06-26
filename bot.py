@@ -602,10 +602,33 @@ class Bot:
                 t_active = self.roomlist[curr_room].trivia.active
             except AttributeError:
                 pass
-            
-            # ]tg is/was also a valid invocation for guessing. This is a neat shortcut.
+
             if t_active:
-                asyncio.create_task(self.command_center(curr_room, parts[3], ']tg {}'.format(parts[4])))
+                msg = ''
+                answer_check = ''
+                trivia_game = self.roomlist[curr_room].trivia
+                # Anime/manga/video game titles have a lot of different colloquial names.
+                # Those rooms are more flexible in accepting answers.
+                is_exact = False if curr_room in [const.ANIME_ROOM, const.VG_ROOM, const.SCHOL_ROOM] else True
+                is_exact = True if self.roomlist[curr_room].trivia.anagrams else is_exact
+                answer_check = check_answer(parts[4], trivia_game.answers, exact=is_exact)
+
+                if answer_check:
+                    msg = f'{parts[3]} wins.'
+                    if find_true_name(parts[3]) == self.username:
+                        if '/uhtml' in ''.join(parts[4]):
+                            return
+                        msg = 'Question skipped.'
+                    else:
+                        trivia_game.update_scores(find_true_name(parts[3]))
+
+                    msg += f' The answer was {answer_check}.'
+
+                    trivia_game.correct.set()
+                    trivia_game.answers = []
+
+                if msg:
+                    await self.outgoing.put(f'{curr_room}|{msg}')
 
 
     async def battle_handler(self, msg, curr_room, parts):
@@ -1392,30 +1415,6 @@ class Bot:
                     await trivia_game.skip(self.outgoing.put)
 
                     msg = 'Skipping question. A correct answer would have been {}.'.format(answer)
-
-        elif command[0] == 'tg' and not pm:
-            trivia_game = self.roomlist[room].trivia
-            if trivia_game.active:
-                answer_check = ''
-                # Anime/manga/video game titles have a lot of different colloquial names.
-                # Those rooms are more flexible in accepting answers.
-                is_exact = False if room in [const.ANIME_ROOM, const.VG_ROOM, const.SCHOL_ROOM] else True
-                is_exact = True if self.roomlist[room].trivia.anagrams else is_exact
-                answer_check = check_answer(''.join(command[1:]), trivia_game.answers, exact=is_exact)
-
-                if answer_check:
-                    msg = f'{caller} wins.'
-                    if true_caller == self.username:
-                        if '/uhtml' in ''.join(command):
-                            return
-                        msg = 'Question skipped.'
-                    else:
-                        trivia_game.update_scores(true_caller)
-
-                    msg += f' The answer was {answer_check}.'
-
-                    trivia_game.correct.set()
-                    trivia_game.answers = []
 
         elif command[0] == 'skip' and not pm:      # Trivia skip alias
             new_command = ']trivia ' + ' '.join(command)
