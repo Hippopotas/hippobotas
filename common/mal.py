@@ -11,7 +11,7 @@ from common.utils import find_true_name, gen_uhtml_img_code
 
 async def check_mal_nsfw(medium, series):
     bl = json.load(open(const.BANLISTFILE))
-    if series in bl[medium]:
+    if str(series) in bl[medium]:
         return True
 
     async with aiohttp.ClientSession(trust_env=True) as session:

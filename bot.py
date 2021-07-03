@@ -452,7 +452,7 @@ class Bot:
         if parts[1] == 'queryresponse':
             if parts[2] == 'userdetails':
                 userinfo = json.loads(parts[3])
-                true_name = userinfo['userid']
+                true_name = userinfo['id']
                 if 'group' in userinfo:
                     self.users[true_name]['group'] = userinfo['group']
                 if userinfo['rooms']:
