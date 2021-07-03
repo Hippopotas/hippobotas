@@ -471,10 +471,17 @@ class QuestionList:
 
     async def gen_am_question(self, session, anagrams=False):
         base = await self.gen_am_base(session)
-        while self.duplicate_check({k:base[k] for k in ('medium', 'sub_medium', 'genre', 'rank') if k in base}):
-            base = await self.gen_am_base(session)
 
-        self.q_bases.append({k:base[k] for k in ('medium', 'sub_medium', 'genre', 'rank') if k in base})
+        if anagrams:
+            while self.duplicate_check(base['answers'][0]):
+                base = await self.gen_am_base(session)
+
+            self.q_bases.append(base['answers'][0])
+        else:
+            while self.duplicate_check({k:base[k] for k in ('medium', 'sub_medium', 'genre', 'rank') if k in base}):
+                base = await self.gen_am_base(session)
+
+            self.q_bases.append({k:base[k] for k in ('medium', 'sub_medium', 'genre', 'rank') if k in base})
 
         if anagrams:
             answer = base['answers'][0]

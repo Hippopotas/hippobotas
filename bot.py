@@ -1365,8 +1365,9 @@ class Bot:
                                                                           args.autoskip),
                                         name='trivia-{}'.format(room))
                 else:
-                    msg = 'Starting a round of trivia with {} questions, with a ' \
-                          '{} second timer. Type your answers to guess!'.format(args.len, args.autoskip)
+                    timer_msg = f', with a {args.autoskip} second timer' if args.autoskip else ''
+
+                    msg = f'Starting a trivia round of {args.len} questions{timer_msg}. Type your answers to guess!'
                     asyncio.create_task(self.roomlist[room].trivia_game(self.outgoing.put,
                                                                         self.incoming.put,
                                                                         args.len,
