@@ -60,7 +60,7 @@ class PlayerBoxTable(Model):
 
 
 # Gacha DBs
-GACHA_DB = SqliteDatabase(const.GACHADBFILE)
+GACHA_DB = SqliteDatabase(const.GACHADBFILE, pragmas={'journal_mode': 'wal'})
 
 class AllGachasTable(Model):
     slug = CharField()

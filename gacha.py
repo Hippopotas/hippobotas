@@ -13,7 +13,8 @@ from common.gacha_db import AllGachasTable, PadTable, FgoTable
 from common.uhtml import ItemInfo, UserInfo
 from common.utils import gen_uhtml_img_code, monospace_table_row
 
-HOURLY_ROLLS = 10
+HOURLY_ROLLS = 3
+MERGE_COUNT = 2
 
 def unit_uhtml(unit, pm=False):
     """ Generates the uhtml for a unit. """
@@ -228,12 +229,12 @@ class GachaManager:
             unit_id_rows = (pb.select(pb.gacha, pb.unit_id)
                             .where(~pb.favorited & (pb.id << ids))
                             .group_by(pb.gacha, pb.unit_id)
-                            .having(peewee.fn.COUNT(pb.unit_id) >= 3))
+                            .having(peewee.fn.COUNT(pb.unit_id) >= MERGE_COUNT))
         else:
             unit_id_rows = (pb.select(pb.gacha, pb.unit_id)
                             .where(~pb.favorited)
                             .group_by(pb.gacha, pb.unit_id)
-                            .having(peewee.fn.COUNT(pb.unit_id) >= 3))
+                            .having(peewee.fn.COUNT(pb.unit_id) >= MERGE_COUNT))
 
         valid_units = []
         for uir in unit_id_rows:
@@ -288,9 +289,9 @@ class GachaManager:
             to_add[gacha] = []
 
             for uid in grouped_units[gacha]:
-                num_merged = len(grouped_units[gacha][uid]) // 3
+                num_merged = len(grouped_units[gacha][uid]) // MERGE_COUNT
                 to_add[gacha] += [round(uid + 0.1, 1)] * num_merged
-                for u in grouped_units[gacha][uid][:(num_merged * 3)]:
+                for u in grouped_units[gacha][uid][:(num_merged * MERGE_COUNT)]:
                     to_delete.append((gacha, u.id))
         
         add_query = []
