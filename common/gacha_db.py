@@ -30,8 +30,8 @@ def add_to_db(db, table, **kwargs):
     print(new_row.save(force_insert=True))
 
 
-# User DBs
-PLAYER_DB = SqliteQueueDatabase(const.GPLAYERDBFILE, pragmas={'journal_mode': 'wal'})
+# Gacha DBs
+GACHA_DB = SqliteDatabase(const.GACHADBFILE, pragmas={'journal_mode': 'wal'})
 
 class PlayerAccInfoTable(Model):
     username = CharField(primary_key=True)
@@ -40,7 +40,7 @@ class PlayerAccInfoTable(Model):
     reroll_currency = IntegerField(default=0)
 
     class Meta:
-        database = PLAYER_DB
+        database = GACHA_DB
         table_name = 'metadata'
 
 
@@ -56,11 +56,8 @@ class PlayerBoxTable(Model):
     showcase = IntegerField(default=0)
 
     class Meta:
-        database = PLAYER_DB
+        database = GACHA_DB
 
-
-# Gacha DBs
-GACHA_DB = SqliteDatabase(const.GACHADBFILE, pragmas={'journal_mode': 'wal'})
 
 class AllGachasTable(Model):
     slug = CharField()
@@ -86,17 +83,17 @@ class GachaTable(Model):
         database = GACHA_DB
 
 
+class FgoTable(GachaTable):
+    evo_from = FloatField(null=True)
+    evo_to = FloatField(null=True)
+
+    class Meta:
+        table_name = 'fgo'
+
+
 class PadTable(GachaTable):
     evo_from = CharField(null=True)
     evo_to = CharField(null=True)
 
     class Meta:
         table_name = 'pad'
-
-
-class FgoTable(GachaTable):
-    evo_from = IntegerField(null=True)
-    evo_to = IntegerField(null=True)
-
-    class Meta:
-        table_name = 'fgo'

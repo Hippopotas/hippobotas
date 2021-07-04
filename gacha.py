@@ -93,13 +93,6 @@ class GachaManager:
             print(e)
             pass
 
-        self.player_db = peewee.SqliteDatabase(const.GPLAYERDBFILE)
-        try:
-            self.player_db.connect()
-        except peewee.OperationalError as e:
-            print(e)
-            pass
-
         self.gachas = {}
         for g in gachas:
             self.gachas[g] = Gacha(g)

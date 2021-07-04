@@ -45,7 +45,6 @@ STEAMFILE = os.path.join(BASE_DIR, 'data/steam.txt')
 
 GACHAINFOFILE = os.path.join(BASE_DIR, 'data/gacha/gacha.json')
 GACHADBFILE = os.path.join(BASE_DIR, 'data/gacha/gachas.db')
-GPLAYERDBFILE = os.path.join(BASE_DIR, 'data/gacha/players.db')
 
 MAL_URL = 'https://myanimelist.net/'
 MAL_IMG_URL = 'https://cdn.myanimelist.net/images/'
