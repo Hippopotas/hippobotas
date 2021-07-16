@@ -1592,6 +1592,10 @@ class Bot:
 
             msg = f'Laddering is now {self.allow_laddering}.'
 
+        elif command[0] == 'exec' and true_caller == const.OWNER:
+            to_exec = ' '.join(command[1:])
+            await self.outgoing.put(f'|{to_exec}')
+
         elif command[0] == 'test' and true_caller == const.OWNER:
             await self.outgoing.put('|/friend')
             return
