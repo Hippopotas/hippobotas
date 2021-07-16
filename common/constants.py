@@ -12,6 +12,8 @@ TCG_ROOM = 'tcgtabletop'
 VG_ROOM = 'videogames'
 PEARY_ROOM = 'bikinibottom'
 
+MAX_FRIENDS = 50
+
 SIMPLE_COMMANDS = ['help', 'dab', 'owo', 'google', 'joogle', 'bing', 'jing', 'jibun']
 UHTML_COMMANDS = ['plebs', 'calendar', 'birthday']
 
@@ -20,8 +22,8 @@ TIMER_USER = 'T*'
 JIKAN_API = 'https://api.jikan.moe/v3/'
 JIKAN_SEARCH_API = 'https://api.jikan.moe/v3/search/'
 DEX_API = 'https://api.mangadex.org/'
-DDRAGON_API = 'http://ddragon.leagueoflegends.com/cdn/11.11.1/data/en_US/'
-DDRAGON_IMG = 'http://ddragon.leagueoflegends.com/cdn/11.11.1/img/'
+DDRAGON_API = 'http://ddragon.leagueoflegends.com/cdn/11.14.1/data/en_US/'
+DDRAGON_IMG = 'http://ddragon.leagueoflegends.com/cdn/11.14.1/img/'
 DDRAGON_SPL = 'http://ddragon.leagueoflegends.com/cdn/img/champion/loading/'
 STEAM_API = 'http://api.steampowered.com/'
 IGDB_API = 'https://api.igdb.com/v4/'
@@ -35,6 +37,7 @@ BANLISTFILE = os.path.join(BASE_DIR, 'data/banlist.json')
 BIRTHDAYFILE = os.path.join(BASE_DIR, 'data/birthdays.json')
 CALENDARFILE = os.path.join(BASE_DIR, 'data/calendar.json')
 EMOTEFILE = os.path.join(BASE_DIR, 'data/emotes.json')
+FRIENDFILE = os.path.join(BASE_DIR, 'data/friends.json')
 SENTENCEFILE = os.path.join(BASE_DIR, 'data/sentences.txt')
 SUCKFILE = os.path.join(BASE_DIR, 'data/suck.txt')
 TOPICFILE = os.path.join(BASE_DIR, 'data/topics.json')

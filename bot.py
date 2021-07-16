@@ -180,6 +180,7 @@ class Bot:
         self.discord_token = os.getenv('DISCORD_TOKEN')
         self.birthdays = json.load(open(const.BIRTHDAYFILE))
         self.sucklist = pd.read_csv(const.SUCKFILE)
+        self.friendslist = json.load(open(const.FRIENDFILE))
 
         self.incoming = asyncio.Queue()
         self.outgoing = asyncio.Queue()
@@ -513,6 +514,13 @@ class Bot:
             caller = parts[3]
             asyncio.create_task(self.emote_center(curr_room, caller, parts[4]))
 
+        # Friend requests
+        if parts[1] == 'pm' and parts[4].startswith('/text'):
+            m = re.match(r'/text (?P<friend>.*) sent you a friend request!', parts[4])
+            if m:
+                await self.friend_center(m.group('friend'))
+                return
+
         # Login
         if parts[1] == 'challstr':
             print('Logging in...')
@@ -796,6 +804,23 @@ class Bot:
             for room in JOINLIST:
                 self.roomlist[room] = Room(room)
                 await self.outgoing.put('|/join ' + room)
+
+
+    async def friend_center(self, new_friend):
+        new_friend = find_true_name(new_friend)
+
+        if new_friend in self.friendslist:
+            return
+
+        if len(self.friendslist) >= const.MAX_FRIENDS:
+            await self.outgoing.put(f'|/unfriend {self.friendslist[0]}')
+            del self.friendslist[0]
+
+        self.friendslist.append(new_friend)
+        with open(const.FRIENDFILE, 'w') as ff:
+            json.dump(self.friendslist, ff, indent=4)
+
+        await self.outgoing.put(f'|/friend accept {new_friend}')
 
 
     def birthday_chars_to_uhtml(self, characters):
@@ -1568,7 +1593,7 @@ class Bot:
             msg = f'Laddering is now {self.allow_laddering}.'
 
         elif command[0] == 'test' and true_caller == const.OWNER:
-            await self.outgoing.put('|/w hippopotas, /announce test')
+            await self.outgoing.put('|/friend')
             return
 
         if msg == '':
