@@ -515,8 +515,8 @@ class Bot:
             asyncio.create_task(self.emote_center(curr_room, caller, parts[4]))
 
         # Friend requests
-        if parts[1] == 'pm' and parts[4].startswith('/text'):
-            m = re.match(r'/text (?P<friend>.*) sent you a friend request!', parts[4])
+        if parts[1] == 'pm' and parts[4].startswith('/raw'):
+            m = re.match(r'/raw <span class="username">(?P<friend>.*)</span> sent you a friend request!', parts[4])
             if m:
                 await self.friend_center(m.group('friend'))
                 return
