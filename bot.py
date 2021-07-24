@@ -23,7 +23,7 @@ import common.constants as const
 from battle import Battle
 from gacha import GachaManager
 from commands import *
-from common.mal import set_mal_user, show_mal_user, mal_user_rand_series, mal_search
+from common.mal import set_mal_user, show_mal_user, mal_user_rand_series, mal_rand_series, mal_search
 from common.steam import set_steam_user, show_steam_user, steam_user_rand_series
 from common.tcg import display_mtg_card, display_ptcg_card, display_ygo_card
 from common.utils import find_true_name, gen_uhtml_img_code, trivia_leaderboard_msg
@@ -1172,6 +1172,22 @@ class Bot:
             if len(command) > 1:
                 query = ' '.join(command[1:])
                 asyncio.create_task(mal_search(self.outgoing.put, const.ANIME_ROOM, 'manga', query))
+
+        elif command[0] == 'randanime' and room == const.ANIME_ROOM and User.compare_ranks(caller[0], '+'):
+            submediums = list(set(const.ANIME_TYPES) & set(command)) if len(command) > 1 else ['']
+            genres = list(set(const.ANIME_GENRES) & set(command)) if len(command) > 1 else ['']
+
+            submediums = [''] if not submediums else submediums
+            genres = [''] if not genres else genres
+            asyncio.create_task(mal_rand_series(self.outgoing.put, const.ANIME_ROOM, 'anime', submediums=submediums, genres=genres))
+
+        elif command[0] == 'randmanga' and room == const.ANIME_ROOM and User.compare_ranks(caller[0], '+'):
+            submediums = list(set(const.MANGA_TYPES) & set(command)) if len(command) > 1 else ['']
+            genres = list(set(const.MANGA_GENRES) & set(command)) if len(command) > 1 else ['']
+
+            submediums = [''] if not submediums else submediums
+            genres = [''] if not genres else genres
+            asyncio.create_task(mal_rand_series(self.outgoing.put, const.ANIME_ROOM, 'manga', submediums=submediums, genres=genres))
 
         # tcg commands
         elif command[0] == 'mtg' and room == const.TCG_ROOM and User.compare_ranks(caller[0], '+'):

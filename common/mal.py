@@ -4,6 +4,8 @@ import json
 import pandas as pd
 import random
 
+from pandas.io import parsers
+
 import common.constants as const
 
 from common.uhtml import UserInfo, ItemInfo
@@ -188,6 +190,63 @@ async def mal_user_rand_series(putter, username, caller, media, ctx):
         return
 
     msg = f'{prefix} {caller} rolled {rand_title}'
+    await putter(msg)
+
+
+async def mal_rand_series(putter, ctx, medium, submediums=[''], genres=['']):
+    msg_body = ''
+    results = []
+
+    submedium = random.choice(submediums)
+    genre = random.choice(genres)
+    page_no = random.randint(1, const.MAL_LAST_PAGES[medium][submedium][genre])
+
+    payload = {'type': submedium,
+               'genre': const.MAL_GENRES[genre] if genre else '',
+               'genre_exclude': 1,
+               'order_by': 'members',
+               'sort': 'desc',
+               'page': page_no}
+
+    async with aiohttp.ClientSession(trust_env=True) as session:
+        async with session.get(const.JIKAN_SEARCH_API + medium, params=payload) as r:
+            resp = await r.json()
+
+            if r.status != 200:
+                err_msg = resp.get('message', '[No error message]')
+                msg_body = f'{r.status} - {err_msg}'
+
+            results = resp.get('results', [])
+
+    random.shuffle(results)
+    if results:
+        for r in results:
+            is_nsfw = await check_mal_nsfw(medium, r['mal_id'])
+            if not is_nsfw:
+                name = r['title'] if 'title' in r else r['name']
+                img_uhtml = gen_uhtml_img_code(r['image_url'], height_resize=100)
+
+                ongoing = 'Ongoing' if r.get('airing', r.get('publishing', False)) else 'Completed'
+                parts = 'Episodes' if 'episodes' in r else 'Chapters'
+
+                item_info = ItemInfo(name, r['url'], 'mal')
+
+                kwargs = {'img_uhtml': img_uhtml,
+                          'ongoing': ongoing,
+                          'parts': f'{parts}: {r[parts.lower()]}',
+                          'score': f"""Score: {r['score']}""",
+                          'synopsis': r['synopsis']}
+
+                uhtml = item_info.animanga(**kwargs)
+
+                msg_body = f"""/adduhtml hippo{medium}{r['mal_id']}, {uhtml}"""
+                break
+
+            await asyncio.sleep(0.2)
+        else:
+            msg_body = ''
+
+    msg = f'{ctx}|{msg_body}'
     await putter(msg)
 
 
