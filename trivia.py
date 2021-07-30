@@ -254,6 +254,9 @@ class QuestionList:
                 for qt in q_types:
                     await self.gen_schol_qbowl_question(qt)
 
+            elif self.room == const.SPORTS_ROOM:
+                await self.gen_sports_questions(session)
+
             elif self.room == const.VG_ROOM:
                 vg_database = json.load(open('data/vg_trivia.json'))
                 for _ in range(n):
@@ -661,6 +664,19 @@ class QuestionList:
             question = (QuestionTable.select()
                                      .where(QuestionTable.qid == question.next_b))[0]
             await self.questions.put([question.question, json.loads(question.answer)])
+
+    async def gen_sports_questions(self, session):
+        payload = {'amount': min(self.num_qs, 50),
+                   'category': 21,
+                   'type': 'multiple'}
+
+        questions = None
+        async with session.get(const.OPENTDB_API, params=payload) as r:
+            questions = await r.json()
+
+        for q in questions['results']:
+            formatted = f"""/announce {q['question']}"""
+            await self.questions.put([formatted, [q['correct_answer']]])
 
     def gen_vg_base(self, vg_database):
         rank = -1
