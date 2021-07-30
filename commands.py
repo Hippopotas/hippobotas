@@ -1,9 +1,10 @@
 import json
 import random
+import requests
 
 import common.constants as const
 
-from common.utils import find_true_name, gen_uhtml_img_code, curr_cal_date
+from common.utils import find_true_name, gen_uhtml_img_code, curr_cal_date, monospace_table_row
 from user import User
 
 
@@ -267,6 +268,9 @@ class EmoteCommand(ModifiableCommand):
         if self.command == 'emote_list':
             self.req_rank = ' '
             self.usage_msg += '[ROOM]'
+        elif self.command == 'emote_stats':
+            self.req_rank = ' '
+            self.usage_msg += '[ROOM]'
         elif self.command == 'emote_add':
             self.min_args += 2
             self.usage_msg += '[ROOM] EMOTE URL'
@@ -296,6 +300,7 @@ class EmoteCommand(ModifiableCommand):
                 await self.pm_msg('Discord URLs do not work as emotes.')
 
             json_info[self.room][emote] = {'times_used': 0, 'url': emote_url}
+            json.dump(json_info, open(self.file, 'w'), indent=4)
 
             self.msg = f'Set :{emote}: to show {emote_url}.'
         
@@ -305,6 +310,8 @@ class EmoteCommand(ModifiableCommand):
 
             try:
                 del json_info[self.room][emote]
+                json.dump(json_info, open(self.file, 'w'), indent=4)
+
                 self.msg = f'Removed {emote} from {self.room} emotes.'
             except KeyError:
                 pass
@@ -316,5 +323,26 @@ class EmoteCommand(ModifiableCommand):
                 if len(json_info[self.room]) >= 1:
                     self.msg = f'!code {self.room} emotes: ' + ', '.join(json_info[self.room])
 
-        json.dump(json_info, open(self.file, 'w'), indent=4)
+        elif self.command == 'emote_stats':
+            self.msg = 'No emotes found.'
+
+            if self.room in json_info:
+                room_emotes = json_info[self.room]
+                if len(room_emotes) >= 1:
+                    header_text = monospace_table_row([('Emote', 30),
+                                                       ('Times Used', 12)])
+                    header_text += '\n' + '-'*54
+                    box_text = ''
+                    for e in sorted(room_emotes,
+                                    key=lambda x: room_emotes[x]['times_used'],
+                                    reverse=True):
+                        box_text += monospace_table_row([(e, 30),
+                                                         (room_emotes[e]['times_used'], 12)])
+                        box_text += '\n'
+
+                    r = requests.post(const.PASTIE_API, data=f'{header_text}\n{box_text}')
+
+                    if r.status_code == 200:
+                        self.msg = f"""https://pastie.io/raw/{r.json()['key']}"""
+
         return self.msg

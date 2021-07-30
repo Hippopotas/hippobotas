@@ -1055,7 +1055,7 @@ class Bot:
             cmd_kwargs['usage_msg'] = f']{command[0]} '
             cmd_obj = BanlistCommand(**cmd_kwargs)
 
-        elif command[0] in ['emote_add', 'emote_set', 'emote_list', 'emote_rm']:
+        elif command[0] in ['emote_add', 'emote_set', 'emote_list', 'emote_rm', 'emote_stats']:
             if command[0] == 'emote_set':
                 cmd_kwargs['full_command'][0] = 'emote_add'
 
