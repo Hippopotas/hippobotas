@@ -331,7 +331,7 @@ class EmoteCommand(ModifiableCommand):
                 if len(room_emotes) >= 1:
                     header_text = monospace_table_row([('Emote', 30),
                                                        ('Times Used', 12)])
-                    header_text += '\n' + '-'*54
+                    header_text += '\n' + '-'*44
                     box_text = ''
                     for e in sorted(room_emotes,
                                     key=lambda x: room_emotes[x]['times_used'],

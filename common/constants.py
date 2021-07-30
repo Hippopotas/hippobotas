@@ -28,6 +28,7 @@ DDRAGON_SPL = 'http://ddragon.leagueoflegends.com/cdn/img/champion/loading/'
 STEAM_API = 'http://api.steampowered.com/'
 IGDB_API = 'https://api.igdb.com/v4/'
 PASTIE_API = 'https://pastie.io/documents'
+OPENTDB_API = 'https://opentdb.com/api.php'
 
 MTG_API = 'https://api.scryfall.com/cards/search?q='
 PTCG_API = 'https://api.pokemontcg.io/v2/cards?q=name:'
@@ -797,3 +798,4 @@ MAL_LAST_PAGES = {
             "": 1118
         }
     }
+}
