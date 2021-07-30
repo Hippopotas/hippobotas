@@ -1055,66 +1055,20 @@ class Bot:
             cmd_kwargs['usage_msg'] = f']{command[0]} '
             cmd_obj = BanlistCommand(**cmd_kwargs)
 
+        elif command[0] in ['emote_add', 'emote_set', 'emote_list', 'emote_rm']:
+            if command[0] == 'emote_set':
+                cmd_kwargs['full_command'][0] = 'emote_add'
+
+            cmd_kwargs['req_rank'] = '#'
+            cmd_kwargs['file'] = const.EMOTEFILE
+            cmd_kwargs['usage_msg'] = f']{command[0]} '
+            cmd_obj = EmoteCommand(**cmd_kwargs)
+
         if cmd_obj: # Remove when all commands are refactored
             msg = await cmd_obj.evaluate()
 
-
-        # Emotes
-        elif (command[0] == 'emote_set' or command[0] == 'emote_add') and User.compare_ranks(caller[0], '#'):
-            # Args: set_emote emote, url
-            if len(command) != 3:
-                await self.outgoing.put(f'{room}|Invalid syntax. Use ]emote_set emote, url')
-                return
-            emote = command[1].lower()
-            if emote.endswith(','):
-                emote = emote[:-1]
-            if find_true_name(emote) != emote:
-                await self.outgoing.put(f'{room}|Invalid syntax. Use ]emote_set emote, url')
-                return
-
-            if room not in self.room_emotes:
-                self.room_emotes[room] = {}
-
-            emote_url = command[2]
-            if 'discordapp' in emote_url:
-                await self.outgoing.put(f'{room}|Please no discord URLs.')
-                return
-
-            self.room_emotes[room][emote] = {'times_used': 0, 'url': emote_url}
-
-            with open(const.EMOTEFILE, 'w') as f:
-                json.dump(self.room_emotes, f, indent=4)
-
-            msg = f'Set :{emote}: to show {emote_url}.'
-
-        elif command[0] == 'emote_del' and User.compare_ranks(caller[0], '#'):
-            # Args: del_emote emote
-            if len(command) != 2:
-                await self.outgoing.put(f'{room}|Invalid syntax. Use ]emote_del emote')
-                return
-
-            emote = command[1].lower()
-
-            msg = f'Did not find {emote} emote.'
-            if room in self.room_emotes:
-                if emote in self.room_emotes[room]:
-                    del self.room_emotes[room][emote]
-
-                    with open(const.EMOTEFILE, 'w') as f:
-                        json.dump(self.room_emotes, f, indent=4)
-
-                    msg = f'Removed {emote} from room emotes.'
-
-        elif command[0] == 'emote_list':
-            msg = 'No emotes found.'
-            if len(command) > 1:
-                room = ''.join(command[1:])
-            if room in self.room_emotes:
-                if len(self.room_emotes[room]) >= 1:
-                    msg = f'!code {room} emotes: ' + ', '.join(self.room_emotes[room])
-
         # Typing test
-        elif command[0] == 'typing_test':
+        if command[0] == 'typing_test':
             asyncio.create_task(self.wpm(true_caller), name='wpm-{}'.format(true_caller))
             return
 

@@ -258,3 +258,63 @@ class BanlistCommand(ModifiableCommand):
 
         json.dump(json_info, open(self.file, 'w'), indent=4)
         return self.msg
+
+
+class EmoteCommand(ModifiableCommand):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+
+        if self.command == 'emote_list':
+            self.req_rank = ' '
+            self.usage_msg += '[ROOM]'
+        elif self.command == 'emote_add':
+            self.min_args += 2
+            self.usage_msg += '[ROOM] EMOTE URL'
+        elif self.command == 'emote_rm':
+            self.min_args += 1
+            self.usage_msg += '[ROOM] EMOTE'
+
+    async def evaluate(self):
+        if not self.is_eligible():
+            await self.pm_msg(self.msg)
+            return
+
+        arg_offset = 1 if self.is_pm else 0
+        self.room = self.args[0] if self.is_pm else self.room
+
+        json_info = json.load(open(self.file))
+        if self.command == 'emote_add':
+            emote = self.args[1 + arg_offset].lower()
+            if emote.endswith(','):
+                emote = emote[:-1]
+
+            if find_true_name(emote) != emote:
+                await self.pm_msg('Emotes must be only letters and/or numbers.')
+
+            emote_url = self.args[2 + arg_offset]
+            if 'discordapp' in emote_url:
+                await self.pm_msg('Discord URLs do not work as emotes.')
+
+            json_info[self.room][emote] = {'times_used': 0, 'url': emote_url}
+
+            self.msg = f'Set :{emote}: to show {emote_url}.'
+        
+        elif self.command == 'emote_rm':
+            emote = find_true_name(self.args[1 + arg_offset])
+            self.msg = f'{self.room} does not have emote {emote}.'
+
+            try:
+                del json_info[self.room][emote]
+                self.msg = f'Removed {emote} from {self.room} emotes.'
+            except KeyError:
+                pass
+
+        elif self.command == 'emote_list':
+            self.msg = 'No emotes found.'
+
+            if self.room in json_info:
+                if len(json_info[self.room]) >= 1:
+                    self.msg = f'!code {self.room} emotes: ' + ', '.join(json_info[self.room])
+
+        json.dump(json_info, open(self.file, 'w'), indent=4)
+        return self.msg
