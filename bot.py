@@ -1025,7 +1025,7 @@ class Bot:
                       'room_only': False,
                       'min_args': 0,
                       'max_args': 9999,
-                      'usage_msg': '',
+                      'usage_msg': f']{command[0]} ',
                       'req_rank': ' ',
                       'allowed_rooms': list(self.roomlist)}
 
@@ -1048,14 +1048,12 @@ class Bot:
 
         elif command[0] in ['topic', 'topic_list', 'topic_rm']:
             cmd_kwargs['file'] = const.TOPICFILE
-            cmd_kwargs['usage_msg'] = f']{command[0]} '
             cmd_obj = TopicCommand(**cmd_kwargs)
 
         elif command[0] in ['bl_add', 'bl_list', 'bl_rm']:
             cmd_kwargs['req_rank'] = '%'
             cmd_kwargs['file'] = const.BANLISTFILE
             cmd_kwargs['allowed_rooms'] = ['animeandmanga']
-            cmd_kwargs['usage_msg'] = f']{command[0]} '
             cmd_obj = BanlistCommand(**cmd_kwargs)
 
         elif command[0] in ['emote_add', 'emote_set', 'emote_list', 'emote_rm', 'emote_stats']:
@@ -1064,7 +1062,6 @@ class Bot:
 
             cmd_kwargs['req_rank'] = '#'
             cmd_kwargs['file'] = const.EMOTEFILE
-            cmd_kwargs['usage_msg'] = f']{command[0]} '
             cmd_obj = EmoteCommand(**cmd_kwargs)
 
         if cmd_obj: # Remove when all commands are refactored

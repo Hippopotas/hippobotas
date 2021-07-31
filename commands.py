@@ -110,11 +110,24 @@ class SimpleCommand(Command):
 
 class UhtmlCommand(Command):
     def __init__(self, **kwargs):
+        if kwargs['is_pm'] and len(kwargs['full_command']) > 1:
+            kwargs['room'] = kwargs['full_command'][1]
+
         super().__init__(**kwargs)
+
+        if self.is_pm:
+            self.min_args += 1
+            self.usage_msg += '[ROOM]'
 
 
     async def evaluate(self):
-        if not self.is_eligible():
+        if not User.compare_ranks(self.caller_rank, self.req_rank):
+            if self.is_pm:
+                return
+            else:
+                await self.pm_msg(f'You can only use {self.command} in PMs...coming soon.')
+                return
+        elif not self.is_eligible():
             await self.pm_msg(self.msg)
             return ''
 
