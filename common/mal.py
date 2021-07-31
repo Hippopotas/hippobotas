@@ -201,8 +201,10 @@ async def mal_rand_series(medium, submediums=[''], genres=['']):
     genre = random.choice(genres)
     page_no = random.randint(1, const.MAL_LAST_PAGES[medium][submedium][genre])
 
+    medium_genres = const.ANIME_GENRES if medium == 'anime' else const.MANGA_GENRES
+
     payload = {'type': submedium,
-               'genre': const.MAL_GENRES[genre] if genre else '',
+               'genre': medium_genres[genre] if genre else '',
                'genre_exclude': 1,
                'order_by': 'members',
                'sort': 'desc',
