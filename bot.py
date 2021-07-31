@@ -1538,6 +1538,12 @@ class Bot:
         elif command[0] == 'exec' and true_caller == const.OWNER:
             to_exec = ' '.join(command[1:])
             await self.outgoing.put(f'|{to_exec}')
+            return
+
+        elif command[0] == 'roomexec' and true_caller == const.OWNER:
+            to_exec = ' '.join(command[2:])
+            await self.outgoing.put(f'{command[1]}|{to_exec}')
+            return
 
         elif command[0] == 'test' and true_caller == const.OWNER:
             await self.outgoing.put('|/friend')
