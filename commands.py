@@ -1,9 +1,11 @@
+import asyncio
 import json
 import random
 import requests
 
 import common.constants as const
 
+from common.mal import mal_search, mal_rand_series
 from common.utils import find_true_name, gen_uhtml_img_code, curr_cal_date, monospace_table_row
 from user import User
 
@@ -119,6 +121,7 @@ class UhtmlCommand(Command):
         if self.command == 'plebs':
             uhtml = gen_uhtml_img_code(const.PLEB_URL, height_resize=250)
             self.msg = f'/adduhtml hippo-pleb, {uhtml}'
+
         elif self.command == 'calendar':
             curr_day_str = curr_cal_date()
             calendar = json.load(open(const.CALENDARFILE))
@@ -132,9 +135,33 @@ class UhtmlCommand(Command):
             date_imgs = calendar[self.room][curr_day_str]
             uhtml = gen_uhtml_img_code(random.choice(date_imgs), height_resize=200)
             self.msg = f'/adduhtml hippo-calendar, {uhtml}'
+
         elif self.command == 'birthday':
             await self.bot.send_birthday_text(automatic=False)
 
+        elif self.command == 'anime':
+            query = ' '.join(self.args)
+            asyncio.create_task(mal_search(self.bot.outgoing.put, self.room, 'anime', query))
+
+        elif self.command == 'manga':
+            query = ' '.join(self.args)
+            asyncio.create_task(mal_search(self.bot.outgoing.put, self.room, 'manga', query))
+
+        elif self.command == 'randanime':
+            submediums = list(set(const.ANIME_TYPES) & set(self.args)) if self.args else ['']
+            genres = list(set(const.ANIME_GENRES) & set(self.args)) if self.args else ['']
+
+            submediums = [''] if not submediums else submediums
+            genres = [''] if not genres else genres
+            asyncio.create_task(mal_rand_series(self.bot.outgoing.put, self.room, 'anime', submediums=submediums, genres=genres))
+
+        elif self.command == 'randmanga':
+            submediums = list(set(const.MANGA_TYPES) & set(self.args)) if self.args else ['']
+            genres = list(set(const.MANGA_GENRES) & set(self.args)) if self.args else ['']
+
+            submediums = [''] if not submediums else submediums
+            genres = [''] if not genres else genres
+            asyncio.create_task(mal_rand_series(self.bot.outgoing.put, self.room, 'manga', submediums=submediums, genres=genres))
 
         return self.msg
 
@@ -284,7 +311,6 @@ class EmoteCommand(ModifiableCommand):
             return
 
         arg_offset = 1 if self.is_pm else 0
-        self.room = self.args[0] if self.is_pm else self.room
 
         json_info = json.load(open(self.file))
         if self.command == 'emote_add':

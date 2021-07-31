@@ -1038,8 +1038,11 @@ class Bot:
             cmd_kwargs['req_rank'] = '+'
             cmd_kwargs['room_only'] = True
 
-            if command[0] == 'birthday':
+            if command[0] in ['birthday', 'anime', 'manga', 'randanime', 'randmanga']:
                 cmd_kwargs['allowed_rooms'] = [const.ANIME_ROOM]
+
+            if command[0] in ['anime', 'manga']:
+                cmd_kwargs['min_args'] = 1
 
             cmd_obj = UhtmlCommand(**cmd_kwargs)
 
@@ -1115,33 +1118,6 @@ class Bot:
                 avg_wpm = wpminfo['avg_wpm']
                 run_count = len(wpminfo['recent_runs'])
                 msg = f'{wpm_user} - Top speed: {top_wpm} WPM. Average of past {run_count} runs: {avg_wpm} WPM.'
-
-        # animeandmanga
-        elif command[0] == 'anime' and room == const.ANIME_ROOM and User.compare_ranks(caller[0], '+'):
-            if len(command) > 1:
-                query = ' '.join(command[1:])
-                asyncio.create_task(mal_search(self.outgoing.put, const.ANIME_ROOM, 'anime', query))
-
-        elif command[0] == 'manga' and room == const.ANIME_ROOM and User.compare_ranks(caller[0], '+'):
-            if len(command) > 1:
-                query = ' '.join(command[1:])
-                asyncio.create_task(mal_search(self.outgoing.put, const.ANIME_ROOM, 'manga', query))
-
-        elif command[0] == 'randanime' and room == const.ANIME_ROOM and User.compare_ranks(caller[0], '+'):
-            submediums = list(set(const.ANIME_TYPES) & set(command)) if len(command) > 1 else ['']
-            genres = list(set(const.ANIME_GENRES) & set(command)) if len(command) > 1 else ['']
-
-            submediums = [''] if not submediums else submediums
-            genres = [''] if not genres else genres
-            asyncio.create_task(mal_rand_series(self.outgoing.put, const.ANIME_ROOM, 'anime', submediums=submediums, genres=genres))
-
-        elif command[0] == 'randmanga' and room == const.ANIME_ROOM and User.compare_ranks(caller[0], '+'):
-            submediums = list(set(const.MANGA_TYPES) & set(command)) if len(command) > 1 else ['']
-            genres = list(set(const.MANGA_GENRES) & set(command)) if len(command) > 1 else ['']
-
-            submediums = [''] if not submediums else submediums
-            genres = [''] if not genres else genres
-            asyncio.create_task(mal_rand_series(self.outgoing.put, const.ANIME_ROOM, 'manga', submediums=submediums, genres=genres))
 
         # tcg commands
         elif command[0] == 'mtg' and room == const.TCG_ROOM and User.compare_ranks(caller[0], '+'):

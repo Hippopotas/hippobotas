@@ -15,7 +15,7 @@ PEARY_ROOM = 'bikinibottom'
 MAX_FRIENDS = 100
 
 SIMPLE_COMMANDS = ['help', 'dab', 'owo', 'google', 'joogle', 'bing', 'jing', 'jibun']
-UHTML_COMMANDS = ['plebs', 'calendar', 'birthday']
+UHTML_COMMANDS = ['plebs', 'calendar', 'birthday', 'anime', 'manga', 'randanime', 'randmanga']
 
 TIMER_USER = 'T*'
 
