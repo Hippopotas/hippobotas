@@ -239,7 +239,7 @@ async def mal_rand_series(medium, submediums=[''], genres=['']):
 
                 uhtml = item_info.animanga(**kwargs)
 
-                msg_body = f"""/adduhtml hippo{medium}{r['mal_id']}, {uhtml}"""
+                msg_body = f"""hippo{medium}{r['mal_id']}, {uhtml}"""
                 break
 
             await asyncio.sleep(0.2)
@@ -282,7 +282,7 @@ async def mal_search(medium, query):
 
                 uhtml = item_info.animanga(**kwargs)
 
-                msg_body = f"""/adduhtml hippo{medium}{r['mal_id']}, {uhtml}"""
+                msg_body = f"""hippo{medium}{r['mal_id']}, {uhtml}"""
                 break
 
             await asyncio.sleep(0.2)

@@ -17,13 +17,7 @@ class Command():
         for k, v in kwargs.items():
             setattr(self, k, v)
 
-        self.caller_rank = self.caller_info['group']
-        if self.room:
-            for r in self.caller_info['rooms']:
-                if r[1:] == self.room:
-                    if User.compare_ranks(r[0], self.caller_rank):
-                        self.caller_rank = r[0]
-                    break
+        self.find_rank()
 
         self.command = self.full_command[0]
         self.args = self.full_command[1:]
@@ -40,33 +34,45 @@ class Command():
 
 
     def usage_with_error(self, error):
-        return f'{error}. Usage: {self.usage_msg}'
+        return f'{error} Usage: {self.usage_msg}'
 
 
-    def is_eligible(self):
+    def check_eligible(self):
+        """ Returns 0 if is eligible.
+        """
         if not User.compare_ranks(self.caller_rank, self.req_rank):
             self.msg = ''
-            return False
+            return 1
 
         if self.room not in self.allowed_rooms:
             self.msg = f'{self.room} is not a legal room for this command.'
-            return False
+            return 2
 
         if self.is_pm and self.room_only:
             self.msg = f']{self.command} can only be used in rooms.'
-            return False
+            return 3
         elif not self.is_pm and self.pm_only:
             self.msg = f']{self.command} can only be used in PMs.'
-            return False
+            return 4
 
         if self.num_args > self.max_args:
-            self.msg = self.usage_with_error('Too many arguments')
-            return False
+            self.msg = self.usage_with_error('Too many arguments.')
+            return 5
         elif self.num_args < self.min_args:
-            self.msg = self.usage_with_error('Too few arguments')
-            return False
+            self.msg = self.usage_with_error('Too few arguments.')
+            return 6
 
-        return True
+        return 0
+
+
+    def find_rank(self):
+        self.caller_rank = self.caller_info['group']
+        if self.room:
+            for r in self.caller_info['rooms']:
+                if r[1:] == self.room:
+                    if User.compare_ranks(r[0], self.caller_rank):
+                        self.caller_rank = r[0]
+                    break
 
 
     async def pm_msg(self, message):
@@ -84,7 +90,7 @@ class SimpleCommand(Command):
 
 
     async def evaluate(self):
-        if not self.is_eligible():
+        if self.check_eligible():
             await self.pm_msg(self.msg)
             return ''
 
@@ -117,23 +123,39 @@ class UhtmlCommand(Command):
 
         if self.is_pm:
             self.min_args += 1
-            self.usage_msg += '[ROOM]'
+            self.usage_msg += '[ROOM] '
+
+        if self.command in ['anime', 'manga']:
+            self.usage_msg += 'SERIES NAME'
+
+        if self.command in ['randanime', 'randmanga']:
+            self.usage_msg += '[GENRES]'
 
 
     async def evaluate(self):
-        if not User.compare_ranks(self.caller_rank, self.req_rank):
-            if self.is_pm:
-                return
-            else:
-                await self.pm_msg(f'You can only use {self.command} in PMs...coming soon.')
-                return
-        elif not self.is_eligible():
+        self.msg = '/adduhtml '
+
+        eligibility = self.check_eligible()
+
+        if eligibility and eligibility != 1:
             await self.pm_msg(self.msg)
             return ''
+        elif eligibility:
+            if self.is_pm and not self.room:
+                await self.pm_msg(self.usage_with_error(''))
+                return
+            elif self.is_pm and self.bot.roomlist[self.room].get_user(self.caller):
+                self.msg = f'/sendprivateuhtml {self.true_caller}, '
+            else:
+                await self.pm_msg(f'You can only use {self.command} in PMs. '
+                                   'Make sure you\'re in the specified room.')
+                return
+        elif self.is_pm:
+            self.msg = f'/sendprivateuhtml {self.true_caller}, '
 
         if self.command == 'plebs':
             uhtml = gen_uhtml_img_code(const.PLEB_URL, height_resize=250)
-            self.msg = f'/adduhtml hippo-pleb, {uhtml}'
+            self.msg += f'hippo-pleb, {uhtml}'
 
         elif self.command == 'calendar':
             curr_day_str = curr_cal_date()
@@ -147,18 +169,18 @@ class UhtmlCommand(Command):
 
             date_imgs = calendar[self.room][curr_day_str]
             uhtml = gen_uhtml_img_code(random.choice(date_imgs), height_resize=200)
-            self.msg = f'/adduhtml hippo-calendar, {uhtml}'
+            self.msg += f'hippo-calendar, {uhtml}'
 
         elif self.command == 'birthday':
             await self.bot.send_birthday_text(automatic=False)
 
         elif self.command == 'anime':
             query = ' '.join(self.args)
-            self.msg = await mal_search('anime', query)
+            self.msg += await mal_search('anime', query)
 
         elif self.command == 'manga':
             query = ' '.join(self.args)
-            self.msg = await mal_search('manga', query)
+            self.msg += await mal_search('manga', query)
 
         elif self.command == 'randanime':
             submediums = list(set(const.ANIME_TYPES) & set(self.args)) if self.args else ['']
@@ -166,7 +188,7 @@ class UhtmlCommand(Command):
 
             submediums = [''] if not submediums else submediums
             genres = [''] if not genres else genres
-            self.msg = await mal_rand_series('anime', submediums=submediums, genres=genres)
+            self.msg += await mal_rand_series('anime', submediums=submediums, genres=genres)
 
         elif self.command == 'randmanga':
             submediums = list(set(const.MANGA_TYPES) & set(self.args)) if self.args else ['']
@@ -174,7 +196,7 @@ class UhtmlCommand(Command):
 
             submediums = [''] if not submediums else submediums
             genres = [''] if not genres else genres
-            self.msg = await mal_rand_series('manga', submediums=submediums, genres=genres)
+            self.msg += await mal_rand_series('manga', submediums=submediums, genres=genres)
 
         return self.msg
 
@@ -211,7 +233,7 @@ class TopicCommand(ModifiableCommand):
 
 
     async def evaluate(self):
-        if not self.is_eligible():
+        if self.check_eligible():
             await self.pm_msg(self.msg)
             return
 
@@ -265,7 +287,7 @@ class BanlistCommand(ModifiableCommand):
 
 
     async def evaluate(self):
-        if not self.is_eligible():
+        if self.check_eligible():
             await self.pm_msg(self.msg)
             return
 
@@ -319,7 +341,7 @@ class EmoteCommand(ModifiableCommand):
             self.usage_msg += '[ROOM] EMOTE'
 
     async def evaluate(self):
-        if not self.is_eligible():
+        if self.check_eligible():
             await self.pm_msg(self.msg)
             return
 

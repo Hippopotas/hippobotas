@@ -1023,6 +1023,7 @@ class Bot:
                       'is_pm': pm,
                       'pm_only': False,
                       'room_only': False,
+                      'pm_response': pm,
                       'min_args': 0,
                       'max_args': 9999,
                       'usage_msg': f']{command[0]} ',
@@ -1036,7 +1037,7 @@ class Bot:
 
         elif command[0] in const.UHTML_COMMANDS:
             cmd_kwargs['req_rank'] = '+'
-            cmd_kwargs['room_only'] = True
+            cmd_kwargs['pm_response'] = False
 
             if command[0] in ['birthday', 'anime', 'manga', 'randanime', 'randmanga']:
                 cmd_kwargs['allowed_rooms'] = [const.ANIME_ROOM]
@@ -1066,6 +1067,14 @@ class Bot:
 
         if cmd_obj: # Remove when all commands are refactored
             msg = await cmd_obj.evaluate()
+
+            if cmd_obj.pm_response:
+                msg = '|/w {}, '.format(true_caller) + msg
+            else:
+                msg = f'{cmd_obj.room}|{msg}'
+
+            await self.outgoing.put(msg)
+            return
 
         # Typing test
         if command[0] == 'typing_test':
