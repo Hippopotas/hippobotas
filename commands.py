@@ -40,12 +40,12 @@ class Command():
     def check_eligible(self):
         """ Returns 0 if is eligible.
         """
-        if not User.compare_ranks(self.caller_rank, self.req_rank):
-            self.msg = ''
-            return 1
-
         if self.room not in self.allowed_rooms:
             self.msg = f'{self.room} is not a legal room for this command.'
+            return 1
+
+        if not User.compare_ranks(self.caller_rank, self.req_rank):
+            self.msg = ''
             return 2
 
         if self.is_pm and self.room_only:
@@ -137,7 +137,7 @@ class UhtmlCommand(Command):
 
         eligibility = self.check_eligible()
 
-        if eligibility and eligibility != 1:
+        if eligibility and eligibility != 2:
             await self.pm_msg(self.msg)
             return ''
         elif eligibility:
