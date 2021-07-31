@@ -154,11 +154,11 @@ class UhtmlCommand(Command):
 
         elif self.command == 'anime':
             query = ' '.join(self.args)
-            asyncio.create_task(mal_search(self.bot.outgoing.put, self.room, 'anime', query))
+            self.msg = await mal_search('anime', query)
 
         elif self.command == 'manga':
             query = ' '.join(self.args)
-            asyncio.create_task(mal_search(self.bot.outgoing.put, self.room, 'manga', query))
+            self.msg = await mal_search('manga', query)
 
         elif self.command == 'randanime':
             submediums = list(set(const.ANIME_TYPES) & set(self.args)) if self.args else ['']
@@ -166,7 +166,7 @@ class UhtmlCommand(Command):
 
             submediums = [''] if not submediums else submediums
             genres = [''] if not genres else genres
-            asyncio.create_task(mal_rand_series(self.bot.outgoing.put, self.room, 'anime', submediums=submediums, genres=genres))
+            self.msg = await mal_rand_series('anime', submediums=submediums, genres=genres)
 
         elif self.command == 'randmanga':
             submediums = list(set(const.MANGA_TYPES) & set(self.args)) if self.args else ['']
@@ -174,7 +174,7 @@ class UhtmlCommand(Command):
 
             submediums = [''] if not submediums else submediums
             genres = [''] if not genres else genres
-            asyncio.create_task(mal_rand_series(self.bot.outgoing.put, self.room, 'manga', submediums=submediums, genres=genres))
+            self.msg = await mal_rand_series('manga', submediums=submediums, genres=genres)
 
         return self.msg
 

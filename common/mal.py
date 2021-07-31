@@ -193,7 +193,7 @@ async def mal_user_rand_series(putter, username, caller, media, ctx):
     await putter(msg)
 
 
-async def mal_rand_series(putter, ctx, medium, submediums=[''], genres=['']):
+async def mal_rand_series(medium, submediums=[''], genres=['']):
     msg_body = ''
     results = []
 
@@ -246,11 +246,10 @@ async def mal_rand_series(putter, ctx, medium, submediums=[''], genres=['']):
         else:
             msg_body = ''
 
-    msg = f'{ctx}|{msg_body}'
-    await putter(msg)
+    return msg_body
 
 
-async def mal_search(putter, ctx, medium, query):
+async def mal_search(medium, query):
     msg_body = ''
     results = []
     async with aiohttp.ClientSession(trust_env=True) as session:
@@ -290,5 +289,4 @@ async def mal_search(putter, ctx, medium, query):
         else:
             msg_body = 'No valid series found.'
 
-    msg = f'{ctx}|{msg_body}'
-    await putter(msg)
+    return msg_body

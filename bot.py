@@ -23,7 +23,7 @@ import common.constants as const
 from battle import Battle
 from gacha import GachaManager
 from commands import *
-from common.mal import set_mal_user, show_mal_user, mal_user_rand_series, mal_rand_series, mal_search
+from common.mal import set_mal_user, show_mal_user, mal_user_rand_series
 from common.steam import set_steam_user, show_steam_user, steam_user_rand_series
 from common.tcg import display_mtg_card, display_ptcg_card, display_ygo_card
 from common.utils import find_true_name, gen_uhtml_img_code, trivia_leaderboard_msg
