@@ -1,12 +1,14 @@
 import asyncio
 import json
 import random
+import re
 import requests
 
 import common.constants as const
 
 from common.mal import mal_search, mal_rand_series
-from common.utils import find_true_name, gen_uhtml_img_code, curr_cal_date, monospace_table_row
+from common.utils import find_true_name, gen_uhtml_img_code, curr_cal_date, \
+                         monospace_table_row, is_url
 from user import User
 
 
@@ -143,13 +145,13 @@ class UhtmlCommand(Command):
         elif eligibility:
             if self.is_pm and not self.room:
                 await self.pm_msg(self.usage_with_error(''))
-                return
+                return ''
             elif self.is_pm and self.bot.roomlist[self.room].get_user(self.caller):
                 self.msg = f'/sendprivateuhtml {self.true_caller}, '
             else:
                 await self.pm_msg(f'You can only use {self.command} in PMs. '
                                    'Make sure you\'re in the specified room.')
-                return
+                return ''
         elif self.is_pm:
             self.msg = f'/sendprivateuhtml {self.true_caller}, '
 
@@ -235,7 +237,7 @@ class TopicCommand(ModifiableCommand):
     async def evaluate(self):
         if self.check_eligible():
             await self.pm_msg(self.msg)
-            return
+            return ''
 
         json_info = json.load(open(self.file))
         if self.room not in json_info:
@@ -289,24 +291,24 @@ class BanlistCommand(ModifiableCommand):
     async def evaluate(self):
         if self.check_eligible():
             await self.pm_msg(self.msg)
-            return
+            return ''
 
         json_info = json.load(open(self.file))
         if self.banlist not in json_info:
             await self.pm_msg(f'{self.banlist} is not a recognized banlist.')
-            return
+            return ''
 
         if self.command == 'bl_add':
             if self.args[1] in json_info[self.banlist]:
                 await self.pm_msg(f'{self.args[1]} already in {self.banlist} banlist.')
-                return
+                return ''
             json_info[self.banlist].append(self.args[1])
             self.msg = f'{self.args[1]} added to {self.banlist} banlist.'
 
         elif self.command == 'bl_rm':
             if self.args[1] not in json_info[self.banlist]:
                 await self.pm_msg(f'{self.args[1]} not in {self.banlist} banlist.')
-                return
+                return ''
             json_info[self.banlist].remove(self.args[1])
             self.msg = f'{self.args[1]} removed from {self.banlist} banlist.'
 
@@ -343,7 +345,7 @@ class EmoteCommand(ModifiableCommand):
     async def evaluate(self):
         if self.check_eligible():
             await self.pm_msg(self.msg)
-            return
+            return ''
 
         arg_offset = 1 if self.is_pm else 0
 
@@ -385,7 +387,7 @@ class EmoteCommand(ModifiableCommand):
                     self.msg = f'!code {self.room} emotes: ' + ', '.join(json_info[self.room])
 
         elif self.command == 'emote_stats':
-            self.msg = 'No emotes found.'
+            self.msg = f'No emotes found for {self.room}.'
 
             if self.room in json_info:
                 room_emotes = json_info[self.room]
@@ -406,4 +408,84 @@ class EmoteCommand(ModifiableCommand):
                     if r.status_code == 200:
                         self.msg = f"""https://pastie.io/raw/{r.json()['key']}"""
 
+        return self.msg
+
+
+class SongCommand(ModifiableCommand):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+
+        self.usage_msg += '[ROOM] '
+
+        if self.command == 'song_add':
+            self.min_args += 2
+            self.usage_msg += 'TITLE URL'
+        elif self.command == 'song_rm':
+            self.min_args += 1
+            self.usage_msg += 'TITLE'
+
+    def check_eligible(self):
+        eligibility = super().check_eligible()
+
+        if not eligibility and self.command == 'song_add':
+            if not is_url(self.args[-1]) or not re.search('youtu.*be', self.args[-1]):
+                eligibility = 101
+                self.msg = self.usage_with_error('Please provide a youtube URL.')
+
+        return eligibility
+
+    async def evaluate(self):
+        if self.check_eligible():
+            await self.pm_msg(self.msg)
+            return ''
+
+        json_info = json.load(open(self.file))
+        if self.command == 'song_add':
+            title = ' '.join(self.args[:-1])
+
+            if self.room not in json_info:
+                json_info[self.room] = {}
+            json_info[self.room][title] = self.args[-1]
+            self.msg = f'Added {title} to song pool.'
+
+        elif self.command == 'song_rm':
+            title = ' '.join(self.args)
+            self.msg = f'{title} not found in song pool.'
+
+            if self.room in json_info:
+                for s in json_info[self.room]:
+                    if find_true_name(s) == find_true_name(title):
+                        del json_info[self.room][s]
+                        self.msg = f'Deleted {title} from song pool.'
+                        break
+
+        elif self.command == 'song_list':
+            self.msg = f'No songs found for {self.room}.'
+
+            if self.room in json_info:
+                room_songs = json_info[self.room]
+                if len(room_songs) >= 1:
+                    header_text = monospace_table_row([('Song Title', 40),
+                                                       ('Youtube Link', 25)])
+                    header_text += '\n' + '-'*66
+                    box_text = ''
+                    for s in room_songs:
+                        box_text += monospace_table_row([(s, 40),
+                                                         (room_songs[s], 25)])
+                        box_text += '\n'
+
+                    r = requests.post(const.PASTIE_API, data=f'{header_text}\n{box_text}')
+
+                    if r.status_code == 200:
+                        self.msg = f"""https://pastie.io/raw/{r.json()['key']}"""
+
+        elif self.command == 'randsong':
+            if self.room not in json_info or not json_info[self.room]:
+                self.msg = 'There are no songs! Use ]song_add.'
+            else:
+                title = random.choice(list(json_info[self.room].keys()))
+                self.msg = f'[[{title}<{json_info[self.room][title]}>]]'
+
+        json.dump(json_info, open(self.file, 'w'), indent=4)
+        print(self.msg is None)
         return self.msg

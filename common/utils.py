@@ -111,3 +111,17 @@ def curr_cal_date():
     """
     curr_day = datetime.date.today()
     return curr_day.strftime('%B') + ' ' + str(curr_day.day)
+
+
+def is_url(uri):
+    """ Django's url validation code.
+    """
+    regex = re.compile(
+            r'^(?:http|ftp)s?://' # http:// or https://
+            r'(?:(?:[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?\.)+(?:[A-Z]{2,6}\.?|[A-Z0-9-]{2,}\.?)|' #domain...
+            r'localhost|' #localhost...
+            r'\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})' # ...or ip
+            r'(?::\d+)?' # optional port
+            r'(?:/?|[/?]\S+)$', re.IGNORECASE)
+
+    return (re.match(regex, uri) is not None)

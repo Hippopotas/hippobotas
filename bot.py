@@ -1065,6 +1065,19 @@ class Bot:
             cmd_kwargs['file'] = const.EMOTEFILE
             cmd_obj = EmoteCommand(**cmd_kwargs)
 
+        elif command[0] in ['song_add', 'song_rm', 'song_list', 'randsong']:
+            cmd_kwargs['req_rank'] = '%'
+            cmd_kwargs['file'] = const.SONGFILE
+
+            if command[0] == 'randsong':
+                cmd_kwargs['room_only'] = True
+                cmd_kwargs['req_rank'] = '+'
+
+            if command[0] == 'song_list':
+                cmd_kwargs['req_rank'] = ' '
+
+            cmd_obj = SongCommand(**cmd_kwargs)
+
         if cmd_obj: # Remove when all commands are refactored
             msg = await cmd_obj.evaluate()
 
