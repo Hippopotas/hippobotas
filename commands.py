@@ -469,7 +469,7 @@ class SongCommand(ModifiableCommand):
                                                        ('Youtube Link', 25)])
                     header_text += '\n' + '-'*66
                     box_text = ''
-                    for s in room_songs:
+                    for s in sorted(room_songs.keys()):
                         box_text += monospace_table_row([(s, 40),
                                                          (room_songs[s], 25)])
                         box_text += '\n'
