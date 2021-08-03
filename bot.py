@@ -1069,12 +1069,9 @@ class Bot:
             cmd_kwargs['req_rank'] = '%'
             cmd_kwargs['file'] = const.SONGFILE
 
-            if command[0] == 'randsong':
-                cmd_kwargs['room_only'] = True
+            if command[0] in ['randsong', 'song_list']:
                 cmd_kwargs['req_rank'] = '+'
-
-            if command[0] == 'song_list':
-                cmd_kwargs['req_rank'] = ' '
+                cmd_kwargs['req_rank_pm'] = ' '
 
             cmd_obj = SongCommand(**cmd_kwargs)
 

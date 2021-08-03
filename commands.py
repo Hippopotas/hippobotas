@@ -29,6 +29,9 @@ class Command():
 
         self.msg = ''
 
+        if 'req_rank_pm' not in kwargs:
+            self.req_rank_pm = self.req_rank
+
 
     @property
     def num_args(self):
@@ -46,7 +49,8 @@ class Command():
             self.msg = f'{self.room} is not a legal room for this command.'
             return 1
 
-        if not User.compare_ranks(self.caller_rank, self.req_rank):
+        if not User.compare_ranks(self.caller_rank, self.req_rank) and not \
+                (self.is_pm and User.compare_ranks(self.caller_rank, self.req_rank_pm)):
             self.msg = ''
             return 2
 
@@ -428,9 +432,9 @@ class SongCommand(ModifiableCommand):
         eligibility = super().check_eligible()
 
         if not eligibility and self.command == 'song_add':
-            if not is_url(self.args[-1]) or not re.search('youtu.*be', self.args[-1]):
+            if not is_url(self.args[-1]):
                 eligibility = 101
-                self.msg = self.usage_with_error('Please provide a youtube URL.')
+                self.msg = self.usage_with_error('Please provide a valid URL.')
 
         return eligibility
 
@@ -439,9 +443,11 @@ class SongCommand(ModifiableCommand):
             await self.pm_msg(self.msg)
             return ''
 
+        arg_offset = 1 if self.is_pm else 0
+
         json_info = json.load(open(self.file))
         if self.command == 'song_add':
-            title = ' '.join(self.args[:-1])
+            title = ' '.join(self.args[arg_offset:-1])
 
             if self.room not in json_info:
                 json_info[self.room] = {}
@@ -449,7 +455,7 @@ class SongCommand(ModifiableCommand):
             self.msg = f'Added {title} to song pool.'
 
         elif self.command == 'song_rm':
-            title = ' '.join(self.args)
+            title = ' '.join(self.args[arg_offset:])
             self.msg = f'{title} not found in song pool.'
 
             if self.room in json_info:
@@ -466,7 +472,7 @@ class SongCommand(ModifiableCommand):
                 room_songs = json_info[self.room]
                 if len(room_songs) >= 1:
                     header_text = monospace_table_row([('Song Title', 40),
-                                                       ('Youtube Link', 25)])
+                                                       ('Link', 25)])
                     header_text += '\n' + '-'*66
                     box_text = ''
                     for s in sorted(room_songs.keys()):
@@ -481,7 +487,7 @@ class SongCommand(ModifiableCommand):
 
         elif self.command == 'randsong':
             if self.room not in json_info or not json_info[self.room]:
-                self.msg = 'There are no songs! Use ]song_add.'
+                self.msg = f'There are no songs for {self.room}!'
             else:
                 title = random.choice(list(json_info[self.room].keys()))
                 self.msg = f'[[{title}<{json_info[self.room][title]}>]]'
