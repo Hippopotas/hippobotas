@@ -355,14 +355,14 @@ class EmoteCommand(ModifiableCommand):
 
         json_info = json.load(open(self.file))
         if self.command == 'emote_add':
-            emote = self.args[1 + arg_offset].lower()
+            emote = self.args[arg_offset].lower()
             if emote.endswith(','):
                 emote = emote[:-1]
 
             if find_true_name(emote) != emote:
                 await self.pm_msg('Emotes must be only letters and/or numbers.')
 
-            emote_url = self.args[2 + arg_offset]
+            emote_url = self.args[1 + arg_offset]
             if 'discordapp' in emote_url:
                 await self.pm_msg('Discord URLs do not work as emotes.')
 
@@ -372,7 +372,7 @@ class EmoteCommand(ModifiableCommand):
             self.msg = f'Set :{emote}: to show {emote_url}.'
         
         elif self.command == 'emote_rm':
-            emote = find_true_name(self.args[1 + arg_offset])
+            emote = find_true_name(self.args[arg_offset])
             self.msg = f'{self.room} does not have emote {emote}.'
 
             try:

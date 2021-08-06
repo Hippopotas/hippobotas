@@ -188,8 +188,6 @@ class Bot:
         self.roomlist = {}
         self.users = {}
 
-        self.room_emotes = json.load(open(const.EMOTEFILE))
-
         self.battles = {}
         self.allow_laddering = False
 
@@ -206,6 +204,11 @@ class Bot:
         self.steam_rooms = [const.VG_ROOM, const.PEARY_ROOM]
 
         self.get_igdb_token()
+
+
+    @property
+    def room_emotes(self):
+        return json.load(open(const.EMOTEFILE))
 
 
     def reconnect(self, restart=True):
@@ -961,10 +964,12 @@ class Bot:
                         platform = p['name']
                     break
 
-            unix_ts = rd['date']
-            year = datetime.datetime.utcfromtimestamp(unix_ts).strftime('%Y')
+            platform_rds[platform] = 'TBD'
+            if 'date' in rd:
+                unix_ts = rd['date']
+                year = datetime.datetime.utcfromtimestamp(unix_ts).strftime('%Y')
 
-            platform_rds[platform] = year
+                platform_rds[platform] = year
 
         rd_str = ''
         for p in platform_rds:
@@ -1264,6 +1269,7 @@ class Bot:
                         msg = 'Game not found.'
                     else:
                         game_list = json.loads(resp)
+                        print(game_list)
                         if not game_list:
                             msg = 'Game not found.'
                         else:
