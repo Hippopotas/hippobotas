@@ -48,7 +48,7 @@ async def get_mal_user(username, retries=5):
                 elif r.status != 200:
                     print('Status {} when getting {} MAL'.format(r.status, username))
                     await asyncio.sleep(10)
-                
+
                     retry += 1
                     continue
 
@@ -70,7 +70,7 @@ async def set_mal_user(putter, ps_user, mal_user, ctx):
             mal_list = mal_list.append(new_user)
         else:
             mal_list.loc[mal_list['user'] == ps_user, 'mal'] = mal_user
-        
+
         mal_list.to_csv(const.MALFILE, index=False)
         await putter(f'{prefix} Set {ps_user}\'s MAL to {mal_user}.')
     else:
@@ -141,53 +141,65 @@ async def show_mal_user(putter, username, true_caller, ctx):
         await putter(f'{prefix} Could not find the MAL account {username}. ')
 
 
-async def mal_user_rand_series(putter, username, caller, media, ctx):
+async def update_mal_user_series(username, media):
+    userfile = f'data/mal/{username}_series.json'
+    try:
+        all_series_list = json.load(open(userfile))
+    except FileNotFoundError:
+        all_series_list = {'anime': [], 'manga': []}
+
+    for medium in media:
+        in_progress = 'reading' if medium == 'manga' else 'watching'
+
+        for status in (in_progress, 'completed'):
+            series_list = {medium: 'placeholder'}
+            page = 1
+            while series_list[medium]:
+                series_list = await get_mal_user(f'{username}/{medium}list/{status}/{page}')
+
+                if series_list:
+                    all_series_list[medium] += series_list[medium]
+                else:
+                    break
+
+                page += 1
+                await asyncio.sleep(0.5)    # Jikan rate-limits to 2 requests/second.
+
+    json.dump(all_series_list, open(userfile, 'w'), indent=4)
+    return all_series_list
+
+
+async def mal_user_rand_series(putter, username, caller, media, ctx, update=True):
     true_caller = find_true_name(caller)
 
     prefix = f'{ctx}|'
     if ctx == 'pm':
         prefix = f'|/w {true_caller},'
 
-    all_series_list = []
-    for medium in media:
-        # Different terms for anime vs manga
-        in_progress = 'reading'
-        if medium == 'anime':
-            in_progress = 'watching'
+    try:
+        all_series_list = json.load(open(f'data/mal/{username}_series.json'))
+    except FileNotFoundError:
+        update = False
+        all_series_list = await update_mal_user_series(username, media)
 
-        for status in (in_progress, 'completed'):
-            series_list = {medium: 'placeholder'}
-            page = 1
-            while series_list[medium]:
-                series_list = await get_mal_user('{}/{}list/{}/{}'.format(username,
-                                                                          medium,
-                                                                          status,
-                                                                          page))
+    roll_pool = sum(all_series_list.values(), [])
+    while roll_pool:
+        rand_series = random.choice(roll_pool)
 
-                if series_list:
-                    all_series_list += series_list[medium]
-                else:
-                    break
-                
-                page += 1
-                await asyncio.sleep(0.5)    # Jikan rate-limits to 2 requests/second.
-
-    while all_series_list:
-        rand_series = random.choice(all_series_list)
-
-        medium = 'manga'
-        if find_true_name(rand_series['type']) in const.ANIME_TYPES:
-            medium = 'anime'
+        medium = 'anime' if find_true_name(rand_series['type']) in const.ANIME_TYPES else 'manga'
         is_nsfw = await check_mal_nsfw(medium, rand_series['mal_id'])
         if is_nsfw:
-            all_series_list.remove(rand_series)
+            roll_pool.remove(rand_series)
         else:
             rand_title = rand_series['title']
             break
 
-    if not all_series_list:
+    if not roll_pool:
         await putter(f'{prefix} No series found for {username} with the given specifications.')
         return
+
+    if update:
+        asyncio.create_task(update_mal_user_series(username, media))
 
     msg = f'{prefix} {caller} rolled {rand_title}'
     await putter(msg)
