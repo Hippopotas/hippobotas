@@ -3,6 +3,7 @@ import json
 import random
 import re
 import requests
+import urllib
 
 import common.constants as const
 
@@ -123,7 +124,7 @@ class SimpleCommand(Command):
 class UhtmlCommand(Command):
     def __init__(self, **kwargs):
         if kwargs['is_pm'] and len(kwargs['full_command']) > 1:
-            kwargs['room'] = kwargs['full_command'][1]
+            kwargs['room'] = find_true_name(kwargs['full_command'][1])
 
         super().__init__(**kwargs)
 
@@ -490,7 +491,9 @@ class SongCommand(ModifiableCommand):
                 self.msg = f'There are no songs for {self.room}!'
             else:
                 title = random.choice(list(json_info[self.room].keys()))
-                self.msg = f'[[{title}<{json_info[self.room][title]}>]]'
+                # Decode the URL because PS re-encodes it
+                song_url = json_info[self.room][title]
+                self.msg = f'[[{title}<{urllib.parse.unquote(song_url)}>]]'
 
         json.dump(json_info, open(self.file, 'w'), indent=4)
         print(self.msg is None)
