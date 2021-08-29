@@ -1,4 +1,5 @@
 import asyncio
+import functools
 import json
 import random
 import re
@@ -219,6 +220,11 @@ class ModifiableCommand(Command):
             self.min_args += 1
 
 
+    @functools.cached_property
+    def json_info(self):
+        return json.load(open(self.file, encoding='utf-8'))
+
+
 class TopicCommand(ModifiableCommand):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -244,10 +250,9 @@ class TopicCommand(ModifiableCommand):
             await self.pm_msg(self.msg)
             return ''
 
-        json_info = json.load(open(self.file))
-        if self.room not in json_info:
-            json_info[self.room] = {'current': '', 'random': []}
-        room_topics = json_info[self.room]
+        if self.room not in self.json_info:
+            self.json_info[self.room] = {'current': '', 'random': []}
+        room_topics = self.json_info[self.room]
 
         if self.command == 'topic':
             if self.num_args:
@@ -265,7 +270,7 @@ class TopicCommand(ModifiableCommand):
         elif self.command == 'topic_list':
             pass
 
-        json.dump(json_info, open(self.file, 'w'), indent=4)
+        json.dump(self.json_info, open(self.file, 'w'), indent=4)
 
         return self.msg
 
@@ -298,23 +303,22 @@ class BanlistCommand(ModifiableCommand):
             await self.pm_msg(self.msg)
             return ''
 
-        json_info = json.load(open(self.file))
-        if self.banlist not in json_info:
+        if self.banlist not in self.json_info:
             await self.pm_msg(f'{self.banlist} is not a recognized banlist.')
             return ''
 
         if self.command == 'bl_add':
-            if self.args[1] in json_info[self.banlist]:
+            if self.args[1] in self.json_info[self.banlist]:
                 await self.pm_msg(f'{self.args[1]} already in {self.banlist} banlist.')
                 return ''
-            json_info[self.banlist].append(self.args[1])
+            self.json_info[self.banlist].append(self.args[1])
             self.msg = f'{self.args[1]} added to {self.banlist} banlist.'
 
         elif self.command == 'bl_rm':
-            if self.args[1] not in json_info[self.banlist]:
+            if self.args[1] not in self.json_info[self.banlist]:
                 await self.pm_msg(f'{self.args[1]} not in {self.banlist} banlist.')
                 return ''
-            json_info[self.banlist].remove(self.args[1])
+            self.json_info[self.banlist].remove(self.args[1])
             self.msg = f'{self.args[1]} removed from {self.banlist} banlist.'
 
         elif self.command == 'bl_list':
@@ -324,9 +328,9 @@ class BanlistCommand(ModifiableCommand):
                 self.msg = (f'/addrankuhtml %, hippo-{self.banlist}bl, '
                             f'<center>{self.banlist} banlist</center><br>')
 
-            self.msg += ', '.join(json_info[self.banlist])
+            self.msg += ', '.join(self.json_info[self.banlist])
 
-        json.dump(json_info, open(self.file, 'w'), indent=4)
+        json.dump(self.json_info, open(self.file, 'w'), indent=4)
         return self.msg
 
 
@@ -354,7 +358,6 @@ class EmoteCommand(ModifiableCommand):
 
         arg_offset = 1 if self.is_pm else 0
 
-        json_info = json.load(open(self.file))
         if self.command == 'emote_add':
             emote = self.args[arg_offset].lower()
             if emote.endswith(','):
@@ -367,8 +370,8 @@ class EmoteCommand(ModifiableCommand):
             if 'discordapp' in emote_url:
                 await self.pm_msg('Discord URLs do not work as emotes.')
 
-            json_info[self.room][emote] = {'times_used': 0, 'url': emote_url}
-            json.dump(json_info, open(self.file, 'w'), indent=4)
+            self.json_info[self.room][emote] = {'times_used': 0, 'url': emote_url}
+            json.dump(self.json_info, open(self.file, 'w'), indent=4)
 
             self.msg = f'Set :{emote}: to show {emote_url}.'
         
@@ -377,8 +380,8 @@ class EmoteCommand(ModifiableCommand):
             self.msg = f'{self.room} does not have emote {emote}.'
 
             try:
-                del json_info[self.room][emote]
-                json.dump(json_info, open(self.file, 'w'), indent=4)
+                del self.json_info[self.room][emote]
+                json.dump(self.json_info, open(self.file, 'w'), indent=4)
 
                 self.msg = f'Removed {emote} from {self.room} emotes.'
             except KeyError:
@@ -387,15 +390,15 @@ class EmoteCommand(ModifiableCommand):
         elif self.command == 'emote_list':
             self.msg = 'No emotes found.'
 
-            if self.room in json_info:
-                if len(json_info[self.room]) >= 1:
-                    self.msg = f'!code {self.room} emotes: ' + ', '.join(json_info[self.room])
+            if self.room in self.json_info:
+                if len(self.json_info[self.room]) >= 1:
+                    self.msg = f'!code {self.room} emotes: ' + ', '.join(self.json_info[self.room])
 
         elif self.command == 'emote_stats':
             self.msg = f'No emotes found for {self.room}.'
 
-            if self.room in json_info:
-                room_emotes = json_info[self.room]
+            if self.room in self.json_info:
+                room_emotes = self.json_info[self.room]
                 if len(room_emotes) >= 1:
                     header_text = monospace_table_row([('Emote', 30),
                                                        ('Times Used', 12)])
@@ -446,31 +449,30 @@ class SongCommand(ModifiableCommand):
 
         arg_offset = 1 if self.is_pm else 0
 
-        json_info = json.load(open(self.file))
         if self.command == 'song_add':
             title = ' '.join(self.args[arg_offset:-1])
 
-            if self.room not in json_info:
-                json_info[self.room] = {}
-            json_info[self.room][title] = self.args[-1]
+            if self.room not in self.json_info:
+                self.json_info[self.room] = {}
+            self.json_info[self.room][title] = self.args[-1]
             self.msg = f'Added {title} to song pool.'
 
         elif self.command == 'song_rm':
             title = ' '.join(self.args[arg_offset:])
             self.msg = f'{title} not found in song pool.'
 
-            if self.room in json_info:
-                for s in json_info[self.room]:
+            if self.room in self.json_info:
+                for s in self.json_info[self.room]:
                     if find_true_name(s) == find_true_name(title):
-                        del json_info[self.room][s]
+                        del self.json_info[self.room][s]
                         self.msg = f'Deleted {title} from song pool.'
                         break
 
         elif self.command == 'song_list':
             self.msg = f'No songs found for {self.room}.'
 
-            if self.room in json_info:
-                room_songs = json_info[self.room]
+            if self.room in self.json_info:
+                room_songs = self.json_info[self.room]
                 if len(room_songs) >= 1:
                     header_text = monospace_table_row([('Song Title', 40),
                                                        ('Link', 25)])
@@ -487,14 +489,14 @@ class SongCommand(ModifiableCommand):
                         self.msg = f"""https://pastie.io/raw/{r.json()['key']}"""
 
         elif self.command == 'randsong':
-            if self.room not in json_info or not json_info[self.room]:
+            if self.room not in self.json_info or not self.json_info[self.room]:
                 self.msg = f'There are no songs for {self.room}!'
             else:
-                title = random.choice(list(json_info[self.room].keys()))
+                title = random.choice(list(self.json_info[self.room].keys()))
                 # Decode the URL because PS re-encodes it
-                song_url = json_info[self.room][title]
+                song_url = self.json_info[self.room][title]
                 self.msg = f'[[{title}<{urllib.parse.unquote(song_url)}>]]'
 
-        json.dump(json_info, open(self.file, 'w'), indent=4)
+        json.dump(self.json_info, open(self.file, 'w'), indent=4)
         print(self.msg is None)
         return self.msg
