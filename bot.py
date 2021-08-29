@@ -884,7 +884,7 @@ class Bot:
             automatic (bool): Whether or not this was automatically scheduled.
             ctx (str): the context to send to.
         '''
-        self.birthdays = json.load(open(const.BIRTHDAYFILE))
+        self.birthdays = json.load(open(const.BIRTHDAYFILE, encoding='utf-8'))
         today = datetime.datetime.today().strftime('%B %d').replace(' 0', ' ')
         short_today = datetime.datetime.today().strftime('%b %d').replace(' 0', ' ')
         birthday_chars = self.birthdays[today]
@@ -1014,6 +1014,7 @@ class Bot:
 
         command = command[1:].split()
 
+        # Aliases
         if not command:
             return
 
@@ -1163,7 +1164,7 @@ class Bot:
                                     name='setmal-{}'.format(true_caller))
             else:
                 msg = 'Usage: ]addmal [MYANIMELIST USERNAME]'
-        
+
         elif command[0] == 'mal' and (room in self.mal_rooms or pm):
             args = None
 
