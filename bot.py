@@ -1015,6 +1015,10 @@ class Bot:
         command = command[1:].split()
 
         # Aliases
+        if command[0] == 'rand_song':
+            command[0] = 'randsong'
+        if command[0] == 'commands':
+            command[0] = 'help'
         if not command:
             return
 
