@@ -474,16 +474,16 @@ class SongCommand(ModifiableCommand):
             if self.room in self.json_info:
                 room_songs = self.json_info[self.room]
                 if len(room_songs) >= 1:
-                    header_text = monospace_table_row([('Song Title', 40),
+                    header_text = monospace_table_row([('Song Title', 100),
                                                        ('Link', 25)])
-                    header_text += '\n' + '-'*66
+                    header_text += '\n' + '-'*146
                     box_text = ''
                     for s in sorted(room_songs.keys()):
-                        box_text += monospace_table_row([(s, 40),
+                        box_text += monospace_table_row([(s, 100),
                                                          (room_songs[s], 25)])
                         box_text += '\n'
 
-                    r = requests.post(const.PASTIE_API, data=f'{header_text}\n{box_text}')
+                    r = requests.post(const.PASTIE_API, data=f'{header_text}\n{box_text}'.encode('utf-8'))
 
                     if r.status_code == 200:
                         self.msg = f"""https://pastie.io/raw/{r.json()['key']}"""
