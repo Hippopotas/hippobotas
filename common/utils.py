@@ -3,7 +3,6 @@ import re
 
 from PIL import ImageFile
 from urllib import request as ulreq
-from urllib.error import HTTPError
 
 from common.constants import IMG_NOT_FOUND
 
@@ -40,7 +39,7 @@ def img_dims_from_uri(uri):
                     continue
                 else:
                     break
-    except HTTPError as e:
+    except Exception as e:
         print(e)
 
     return dims
