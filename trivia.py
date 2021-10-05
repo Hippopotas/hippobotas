@@ -158,7 +158,7 @@ class TriviaGame:
             self.scoreboard = timer
 
     async def start(self, n=10, diff=BASE_DIFF, categories=['all'],
-                    excludecats=False, by_rating=False,
+                    excludecats=None, by_rating=False,
                     quizbowl=False, is_dex=False, anagrams=False):
         self.active = True
         self.anagrams = anagrams
@@ -218,13 +218,15 @@ class QuestionList:
     def __init__(self, room):
         self.diff = BASE_DIFF
         self.categories = ['all']
-        self.excludecats = False
+        self.excludecats = None
         self.by_rating = False
         self.room = room
         self.q_bases = []
         self.num_qs = 0
         self.questions = asyncio.Queue()
         self.series_exist = True
+        self.category_params = []
+        self.max_rank = 0
 
     async def gen_list(self, n, quizbowl=False, is_dex=False, anagrams=False):
         self.num_qs = n
@@ -278,213 +280,167 @@ class QuestionList:
         return url
 
     async def gen_am_base(self, session):
-        while self.series_exist:
-            media = []
-            anime_media = []
-            manga_media = []
-            genres = {'anime': [], 'manga': []}
+        query = '''
+        query ($page: Int, $perpage: Int) {
+            Page (page: $page, perPage: $perpage) {
+                pageInfo {
+                    total
+                }
+                media (CATEGORIES_PLACEHOLDER minimumTagRank: 40, isAdult: false, sort: SORT_PLACEHOLDER) {
+                    id
+                    idMal
+                    description
+                    title {
+                        english
+                        userPreferred
+                        romaji
+                    }
+                    description
+                    coverImage {
+                        large
+                    }
+                    bannerImage
+                }
+            }
+        }
+        '''
 
+        if not self.category_params:
             if 'all' not in self.categories:
+                media = []
+                genres = []
+                tags = []
                 for c in self.categories:
-                    if c in const.ANIME_TYPES:
-                        anime_media.append(('anime', c))
-                    if c in const.MANGA_TYPES:
-                        manga_media.append(('manga', c))
+                    true_c = find_true_name(c)
 
-                for c in self.categories:
-                    if c in const.ANIME_GENRES:
-                        genres['anime'].append(const.ANIME_GENRES[c])
-                    if c in const.MANGA_GENRES:
-                        genres['manga'].append(const.MANGA_GENRES[c])
-
-            media = anime_media + manga_media
-            if len(media) == 0:
-                media = [('anime', ''), ('manga', '')]
-
-            exclude_media = []
-            if self.excludecats:
-                exclude_media = [p[1] for p in media]
-                media = [('anime', ''), ('manga', '')]
-
-            medium, sub_medium = random.choice(media)
-            # Handle 'anime'/'manga' exclusion here
-            if medium in exclude_media:
-                continue
-
-            if len(genres[medium]) == 0:
-                genres[medium] = ['']
-            genre_code = random.choice(genres[medium])
-            if self.excludecats:
-                genre_code = ','.join(map(str, genres[medium]))
-
-            genre = ''
-            if genre_code != '':
-                if medium == 'anime':
-                    for g in const.ANIME_GENRES:
-                        if const.ANIME_GENRES[g] == genre_code:
-                            genre = g
-                            break
-                elif medium == 'manga':
-                    for g in const.MANGA_GENRES:
-                        if const.MANGA_GENRES[g] == genre_code:
-                            genre = g
+                    for m in const.ANILIST_MEDIA:
+                        if true_c == find_true_name(m):
+                            media.append(m)
                             break
 
-            # Yes, it's backwards on jikan, idk.
-            g_exclude = 1
-            if self.excludecats:
-                g_exclude = 0
+                    for g in const.ANILIST_GENRES:
+                        if true_c == find_true_name(g):
+                            genres.append(g)
+                            break
 
-            rank = 0
-            max_rank = const.MAL_LAST_PAGES[medium][sub_medium][genre] * 50
-            if max_rank == 0:
-                self.series_exist = False
-                for task in asyncio.all_tasks():
-                    if task.get_name() == 'trivia-{}'.format(self.room):
-                        task.cancel()
-                        break
+                    for t in const.ANILIST_TAGS:
+                        if true_c == find_true_name(t):
+                            tags.append(t)
+                            break
 
-            diff_scale = max(1.1, math.log(max_rank, 10) / 1.5)
-            std_dev_scale = max(10, diff_scale ** 2)
+                if media:
+                    self.category_params.append(f'format_in: {json.dumps(media)}')
+                if genres:
+                    self.category_params.append(f'genre_in: {json.dumps(genres)}')
+                if tags:
+                    self.category_params.append(f'tag_in: {json.dumps(tags)}')
 
-            while rank < 1 or rank > max_rank:
-                rank = int(random.gauss(max_rank // ((diff_scale) ** (10 - self.diff)),
-                                        (std_dev_scale * self.diff)))
+                if self.excludecats:
+                    media = []
+                    genres = []
+                    tags = []
+                    for c in self.excludecats:
+                        true_c = find_true_name(c)
 
-            all_series = {}
-            page = (rank - 1) // 50 + 1
-            sort_method = 'members'
-            if self.by_rating:
-                sort_method = 'score'
+                        for m in const.ANILIST_MEDIA:
+                            if true_c == find_true_name(m):
+                                media.append(m)
+                                break
 
-            url = (f'{const.JIKAN_API}search/{medium}?q=&type={sub_medium}&genre={genre_code}&'
-                   f'genre_exclude={g_exclude}&page=1&order_by={sort_method}&sort=desc')
+                        for g in const.ANILIST_GENRES:
+                            if true_c == find_true_name(g):
+                                genres.append(g)
+                                break
 
-            async with session.get(url) as r:
-                resp = await r.text()
+                        for t in const.ANILIST_TAGS:
+                            if true_c == find_true_name(t):
+                                tags.append(t)
+                                break
 
-                if r.status == 404:
-                    self.series_exist = False
+                    if media:
+                        self.category_params.append(f'format_not_in: {json.dumps(media)}')
+                    if genres:
+                        self.category_params.append(f'genre_not_in: {json.dumps(genres)}')
+                    if tags:
+                        self.category_params.append(f'tag_not_in: {json.dumps(tags)}')
+
+        # Get max_rank
+        category_params_str = ','.join(self.category_params)
+        if category_params_str:
+            category_params_str += ','
+        query = query.replace('CATEGORIES_PLACEHOLDER', category_params_str)
+
+        sort = 'SCORE_DESC' if self.by_rating else 'POPULARITY_DESC'
+        query = query.replace('SORT_PLACEHOLDER', sort)
+
+        if not self.max_rank:
+            query_vars = {
+                'page': 1,
+                'perpage': 1
+            }
+
+            async with session.post(const.ANILIST_API, json={'query': query, 'variables': query_vars}) as r:
+                resp = await r.json()
+                if r.status != 200:
                     for task in asyncio.all_tasks():
                         if task.get_name() == 'trivia-{}'.format(self.room):
                             task.cancel()
-                            break
-                elif resp:
-                    if len(json.loads(resp)['results']) == 0:
-                        self.series_exist = False
-                        for task in asyncio.all_tasks():
-                            if task.get_name() == 'trivia-{}'.format(self.room):
-                                task.cancel()
-                                break
+                            return
 
-                await asyncio.sleep(2)
+                self.max_rank = resp['data']['Page']['pageInfo']['total']
 
-            async with session.get(url.replace('page=1', f'page={page}')) as r:
-                resp = await r.text()
+        rank = 0
+        if self.max_rank < self.num_qs:
+            self.series_exist = False
+            for task in asyncio.all_tasks():
+                if task.get_name() == 'trivia-{}'.format(self.room):
+                    task.cancel()
+                    return
 
-                if r.status == 403:
-                    print('Got rate limited by Jikan on top {}.'.format(medium))
-                    await asyncio.sleep(10)
-                    continue
-                # Page number/rank is too large, reroll
-                elif r.status == 404:
-                    await asyncio.sleep(2)
-                    continue
+        diff_scale = max(1.1, math.log(self.max_rank, 10) / 1.5)
+        std_dev_scale = max(10, diff_scale ** 2)
 
-                all_series = json.loads(resp)['results']
+        while rank < 1 or rank > self.max_rank:
+            rank = int(random.gauss(self.max_rank // ((diff_scale) ** (10 - self.diff)),
+                                    (std_dev_scale * self.diff)))
 
-            await asyncio.sleep(2)    # Jikan rate limits to 30 queries/min
+        series_data = {}
 
-            series_data = {}
+        roll_query_vars = {
+            'page': rank,
+            'perpage': 1
+        }
+        async with session.post(const.ANILIST_API, json={'query': query, 'variables': roll_query_vars}) as r:
+            resp = await r.json()
 
-            try:
-                series = all_series[(rank%50)-1]
-            except IndexError:
-                series = random.choice(all_series)
+            if r.status != 200:
+                for task in asyncio.all_tasks():
+                    if task.get_name() == 'trivia-{}'.format(self.room):
+                        task.cancel()
+                        return
 
-            # Reroll on hitting excluded medium
-            if self.excludecats and re.sub(r'[^a-zA-Z0-9]', '', series['type']).lower() in exclude_media:
-                continue
+            series_data = resp['data']['Page']['media'][0]
 
-            async with session.get(const.JIKAN_API + '{}/{}'.format(medium, series['mal_id'])) as r:
-                resp = await r.text()
-                series_data = json.loads(resp)
+        aliases = []
+        for title in series_data['title'].values():
+            if title:
+                aliases.append(title)
 
-                if r.status == 403:
-                    print('Got rate limited by Jikan on {}.'.format())
-                    await asyncio.sleep(10)
-                    continue
+        await asyncio.sleep(1)
 
-            await asyncio.sleep(2)    # Jikan rate limits to 30 queries/min
-            
-            valid_series = True
-
-            # Cannot be on banlist.
-            bl = json.load(open(const.BANLISTFILE))
-            if series['mal_id'] in bl[medium]:
-                valid_series = False
-
-            # No H/NSFW.
-            for genre in series_data['genres']:
-                if genre['mal_id'] == 12:
-                    valid_series = False
-
-            # Needs at least 1 picture.
-            pics = []
-            async with session.get(const.JIKAN_API + '{}/{}/pictures'.format(medium, series['mal_id'])) as r:
-                resp = await r.text()
-                pics_data = json.loads(resp)
-
-                if r.status == 403:
-                    print('Got rate limited by Jikan on {}.'.format())
-                    await asyncio.sleep(10)
-                    continue
-                    
-                for p in pics_data['pictures']:
-                    pics.append(p['small'])
-                if not pics:
-                    valid_series = False
-
-            await asyncio.sleep(2)    # Jikan rate limits to 30 queries/min
-
-            # Cannot have banwords in the name.
-            aliases = []
-            if series_data['title']:
-                aliases.append(series_data['title'])
-            if series_data['title_english']:
-                aliases.append(series_data['title_english'])
-            aliases += series_data['title_synonyms']
-
-            for alias in aliases:
-                if 'hentai' in alias.lower():
-                    valid_series = False
-                    break
-
-            if not valid_series:
-                continue
-
-            img_url = random.choice(pics)
-            return {'img_url': img_url,
-                    'synopsis': series_data['synopsis'],
-                    'answers': aliases,
-                    'medium': medium,
-                    'sub_medium': sub_medium,
-                    'genre': genre_code,
-                    'rank': rank}
+        return {'img_url': series_data['coverImage']['large'],
+                'description': series_data['description'],
+                'answers': aliases,
+                'rank': rank,
+                'id': series_data['id']}
 
     async def gen_am_question(self, session, anagrams=False):
         base = await self.gen_am_base(session)
 
-        if anagrams:
-            while self.duplicate_check(base['answers'][0]):
-                base = await self.gen_am_base(session)
+        while self.duplicate_check(base['id']) or not base['img_url']:
+            base = await self.gen_am_base(session)
 
-            self.q_bases.append(base['answers'][0])
-        else:
-            while self.duplicate_check({k:base[k] for k in ('medium', 'sub_medium', 'genre', 'rank') if k in base}):
-                base = await self.gen_am_base(session)
-
-            self.q_bases.append({k:base[k] for k in ('medium', 'sub_medium', 'genre', 'rank') if k in base})
+        self.q_bases.append(base['id'])
 
         if anagrams:
             answer = base['answers'][0]
@@ -493,19 +449,19 @@ class QuestionList:
             await self.questions.put([f'/announce Unscramble this: **{scrambled}**', [answer]])
             return
 
-        img_url = gen_uhtml_img_code(base['img_url'], height_resize=PIC_SIZE)
+        img_url = gen_uhtml_img_code(base['img_url'], dims=(140, 210))
 
         await self.questions.put(['/adduhtml {}, {}'.format(UHTML_NAME, img_url),
                                   base['answers']])
 
     async def gen_am_qbowl_question(self, session):
         base = await self.gen_am_base(session)
-        while self.duplicate_check({k:base[k] for k in ('medium', 'sub_medium', 'genre', 'rank') if k in base}) or not base['synopsis']:
+        while self.duplicate_check(base['id']) or not base['description']:
             base = await self.gen_am_base(session)
 
-        self.q_bases.append({k:base[k] for k in ('medium', 'sub_medium', 'genre', 'rank') if k in base})
+        self.q_bases.append(base['id'])
 
-        question = base['synopsis']
+        question = base['description']
         for title in base['answers']:
             question = censor_quizbowl(title, question)
 
@@ -523,7 +479,7 @@ class QuestionList:
                 if r.status != 200:
                     await asyncio.sleep(3)
                     continue
-            
+
                 series_info = rand_series['data']
                 if series_info['attributes']['contentRating'] != 'safe':
                     continue
@@ -547,8 +503,8 @@ class QuestionList:
         async with session.get(f'{const.DEX_API}cover', params={'manga[]': [series_id]}) as r:
             covers = await r.json()
 
-            cover_info = random.choice(covers['results'])
-            cover_id = cover_info['data']['attributes']['fileName']
+            cover_info = random.choice(covers['data'])
+            cover_id = cover_info['attributes']['fileName']
 
         img_url = f'https://uploads.mangadex.org/covers/{series_id}/{cover_id}.256.jpg'
         img_uhtml = gen_uhtml_img_code(img_url, height_resize=PIC_SIZE)
