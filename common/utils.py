@@ -1,8 +1,9 @@
 import datetime
 import re
+import urllib.request
 
-from PIL import ImageFile
-from urllib import request as ulreq
+from io import BytesIO
+from PIL import Image
 
 from common.constants import IMG_NOT_FOUND
 
@@ -18,27 +19,10 @@ def img_dims_from_uri(uri):
     """
     # Returns width, height
     dims = (0, 0)
-    data = None
-    retry = 0
     try:
-        with ulreq.urlopen(uri) as f:
-            while retry < 1000:
-                p = ImageFile.Parser()
-
-                if not data:
-                    data = f.read(1024)
-                else:
-                    data += f.read(1024)
-
-                p.feed(data)
-
-                try:
-                    dims = p.image.size
-                except AttributeError:
-                    retry += 1
-                    continue
-                else:
-                    break
+        file = BytesIO(urllib.request.urlopen(uri).read())
+        im = Image.open(file)
+        dims = im.size
     except Exception as e:
         print(e)
 
