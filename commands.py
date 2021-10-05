@@ -103,7 +103,7 @@ class SimpleCommand(Command):
             return ''
 
         if self.command == 'help':
-            self.msg = 'o3o https://pastebin.com/raw/LxnMv5hA o3o'
+            self.msg = 'o3o [[README <https://github.com/Hippopotas/hippobotas/blob/master/README.md>]] o3o'
         elif self.command == 'dab':
             self.msg = '/me dabs'
         elif self.command == 'owo':
