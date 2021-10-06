@@ -12,6 +12,7 @@ from peewee import fn
 
 import common.constants as const
 
+from common.anilist import anilist_num_entries
 from common.qbowl_db import QuestionTable
 from common.utils import find_true_name, gen_uhtml_img_code
 
@@ -287,7 +288,7 @@ class QuestionList:
                 pageInfo {
                     total
                 }
-                media (CATEGORIES_PLACEHOLDER minimumTagRank: 40, isAdult: false, sort: SORT_PLACEHOLDER) {
+                media (CATEGORIES_PLACEHOLDER minimumTagRank: 50, isAdult: false, sort: SORT_PLACEHOLDER) {
                     id
                     idMal
                     description
@@ -296,7 +297,6 @@ class QuestionList:
                         userPreferred
                         romaji
                     }
-                    description
                     coverImage {
                         large
                     }
@@ -365,7 +365,6 @@ class QuestionList:
                     if tags:
                         self.category_params.append(f'tag_not_in: {json.dumps(tags)}')
 
-        # Get max_rank
         category_params_str = ','.join(self.category_params)
         if category_params_str:
             category_params_str += ','
@@ -374,6 +373,7 @@ class QuestionList:
         sort = 'SCORE_DESC' if self.by_rating else 'POPULARITY_DESC'
         query = query.replace('SORT_PLACEHOLDER', sort)
 
+        # Get max_rank
         if not self.max_rank:
             query_vars = {
                 'page': 1,
@@ -381,15 +381,13 @@ class QuestionList:
             }
 
             async with anilist_man.lock():
-                async with session.post(const.ANILIST_API, json={'query': query, 'variables': query_vars}) as r:
-                    resp = await r.json()
-                    if r.status != 200:
-                        for task in asyncio.all_tasks():
-                            if task.get_name() == 'trivia-{}'.format(self.room):
-                                task.cancel()
-                                return
+                self.max_rank = await anilist_num_entries(query, query_vars, session)
 
-                    self.max_rank = resp['data']['Page']['pageInfo']['total']
+            if not self.max_rank:
+                for task in asyncio.all_tasks():
+                    if task.get_name() == 'trivia-{}'.format(self.room):
+                        task.cancel()
+                        return
 
         rank = 0
         if self.max_rank < self.num_qs:

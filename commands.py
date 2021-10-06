@@ -8,8 +8,7 @@ import urllib
 
 import common.constants as const
 
-from common.anilist import anilist_search
-from common.mal import mal_search, mal_rand_series
+from common.anilist import anilist_search, anilist_rand_series
 from common.utils import find_true_name, gen_uhtml_img_code, curr_cal_date, \
                          monospace_table_row, is_url
 from user import User
@@ -192,20 +191,16 @@ class UhtmlCommand(Command):
             self.msg += await anilist_search('manga', query, self.bot.anilist_man)
 
         elif self.command == 'randanime':
-            submediums = list(set(const.ANIME_TYPES) & set(self.args)) if self.args else ['']
-            genres = list(set(const.ANIME_GENRES) & set(self.args)) if self.args else ['']
+            genres = list(set(const.ANILIST_GENRES) & set(self.args)) if self.args else []
+            tags = list(set(const.ANILIST_TAGS) & set(self.args)) if self.args else []
 
-            submediums = [''] if not submediums else submediums
-            genres = [''] if not genres else genres
-            self.msg += await mal_rand_series('anime', submediums=submediums, genres=genres)
+            self.msg += await anilist_rand_series('anime', self.bot.anilist_man, genres=genres, tags=tags)
 
-        elif self.command == 'randmanga':
-            submediums = list(set(const.MANGA_TYPES) & set(self.args)) if self.args else ['']
-            genres = list(set(const.MANGA_GENRES) & set(self.args)) if self.args else ['']
+        elif self.command == 'randmanga':            
+            genres = list(set(const.ANILIST_GENRES) & set(self.args)) if self.args else []
+            tags = list(set(const.ANILIST_TAGS) & set(self.args)) if self.args else []
 
-            submediums = [''] if not submediums else submediums
-            genres = [''] if not genres else genres
-            self.msg += await mal_rand_series('manga', submediums=submediums, genres=genres)
+            self.msg += await anilist_rand_series('manga', self.bot.anilist_man, genres=genres, tags=tags)
 
         return self.msg
 
