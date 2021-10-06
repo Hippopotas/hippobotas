@@ -246,15 +246,21 @@ class ItemInfo(InfoBox):
 
         status_style = ('color:#555;'
                         'font-size:10px;'
-                        'padding-top:5px')
+                        'padding-top:5px;'
+                        'width:120px')
 
         with self.html.table(style=self.table_style()):
             with self.html.thead():
                 with self.html.tr():
                     with self.html.th(colspan=4, width=96, style=title_style):
+                        self.html.span(_t=self.item_name+' ')
+                        self.html.a(href=kwargs['al_link'],
+                                    style='color:#8311a6; font-size:11px',
+                                    _t='(AL)')
+                        self.html.span(_t=' ')
                         self.html.a(href=self.item_link,
-                                    style='color:#8311a6',
-                                    _t=self.item_name)
+                                    style='color:#8311a6; font-size:11px',
+                                    _t='(MAL)')
 
             with self.html.tbody():
                 with self.html.tr(style='text-align:center'):
@@ -263,7 +269,8 @@ class ItemInfo(InfoBox):
 
                     self.html.td(style=(f'color:{ongoing_color};'
                                          'font-size:10px;'
-                                         'padding-top:5px'),
+                                         'padding-top:5px;'
+                                         'width:120px'),
                                  _t=kwargs['ongoing'])
 
                     self.html.td(style=status_style, _t=kwargs['parts'])

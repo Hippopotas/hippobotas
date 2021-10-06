@@ -29,6 +29,7 @@ async def anilist_search(medium, search, anilist_man):
     query ($search: String) {
         Page (page: 1, perPage: 1) {
             media (MEDIUM_PLACEHOLDER, search: $search, isAdult: false) {
+                id
                 idMal
                 title {
                     english
@@ -41,7 +42,7 @@ async def anilist_search(medium, search, anilist_man):
                 episodes
                 chapters
                 description
-                meanScore
+                averageScore
             }
         }
     }
@@ -81,9 +82,10 @@ async def anilist_search(medium, search, anilist_man):
     item_info = ItemInfo(title, mal_url, 'mal')
 
     kwargs = {'img_uhtml': img_uhtml,
+              'al_link': f'https://anilist.co/{medium}/{series_data["id"]}',
               'ongoing': series_data['status'],
               'parts': f'{parts}: {series_data[parts.lower()]}',
-              'score': series_data['meanScore'],
+              'score': f'{series_data["averageScore"]}%',
               'synopsis': series_data['description']}
 
     uhtml = item_info.animanga(**kwargs)
