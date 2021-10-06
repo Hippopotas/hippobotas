@@ -3,6 +3,7 @@ import argparse
 import asyncio
 import datetime
 import discord
+import dotenv
 import json
 import logging
 import numpy as np
@@ -16,7 +17,6 @@ import time
 import websockets
 
 from discord.ext import commands
-from dotenv import load_dotenv
 
 import common.constants as const
 
@@ -138,9 +138,9 @@ def trivia_arg_parser(s):
     try:
         args = parser.parse_args(shlex.split(s))
 
-        all_categories = ['all', 'mangadex'] + const.ANIME_TYPES + const.MANGA_TYPES + \
-                         list(const.ANIME_GENRES.keys()) + list(const.MANGA_GENRES.keys()) + \
-                         const.LEAGUE_CATS
+        all_categories = ['all', 'mangadex'] + const.ANILIST_GENRES + const.ANILIST_MEDIA + \
+                         list(const.ANILIST_TAGS.keys()) + const.LEAGUE_CATS
+        all_categories = list(map(find_true_name, all_categories))
         fixed_categories = []
         arg_categories = iter(args.categories)
 
@@ -174,7 +174,7 @@ def trivia_arg_parser(s):
 
 class Bot:
     def __init__(self):
-        load_dotenv()
+        dotenv.load_dotenv()
         self.username = os.getenv('PS_USERNAME')
         self.password = os.getenv('PS_PASSWORD')
         self.discord_token = os.getenv('DISCORD_TOKEN')

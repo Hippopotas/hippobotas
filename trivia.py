@@ -329,7 +329,7 @@ class QuestionList:
                             break
 
                 if media:
-                    self.category_params.append(f'format_in: {json.dumps(media)}')
+                    self.category_params.append(f'format_in: {", ".join(media)}')
                 if genres:
                     self.category_params.append(f'genre_in: {json.dumps(genres)}')
                 if tags:

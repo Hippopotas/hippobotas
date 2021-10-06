@@ -28,7 +28,7 @@ class Room:
         return None
 
     async def trivia_game(self, putter, i_putter, n=10, diff=3,
-                          categories=['all'], excludecats=False, by_rating=False, autoskip=20):
+                          categories=['all'], excludecats=None, by_rating=False, autoskip=20):
         if self.trivia.active:
             await putter(self.roomname + '|There is already a running trivia!')
             return
@@ -57,7 +57,7 @@ class Room:
 
         except asyncio.CancelledError:
             if not self.trivia.questions.series_exist:
-                await putter(self.roomname + '|There are no series for some combination(s) of these categories.')
+                await putter(self.roomname + '|There are not enough series for this combination of categories.')
             for task in asyncio.all_tasks():
                 if task.get_name() == 'tquestions-{}'.format(self.roomname):
                     task.cancel()
@@ -75,7 +75,7 @@ class Room:
             await putter(self.roomname + '|' + msg)
 
     async def quizbowl_game(self, putter, i_putter, n=10, diff=3,
-                            categories=['all'], excludecats=False, by_rating=False, autoskip=20):
+                            categories=['all'], excludecats=None, by_rating=False, autoskip=20):
         if self.trivia.active:
             await putter(self.roomname + '|There is already a running trivia!')
             return
@@ -97,13 +97,15 @@ class Room:
 
         except asyncio.CancelledError:
             if not self.trivia.questions.series_exist:
-                await putter(self.roomname + '|There are no series for some combination(s) of these categories.')
+                await putter(self.roomname + '|There are not enough series for this combination of these categories.')
+            else:
+                await putter(self.roomname + '|Something broke. Ending trivia.')
+
             for task in asyncio.all_tasks():
                 if task.get_name() == 'tquestions-{}'.format(self.roomname):
                     task.cancel()
                     break
 
-            print('Quizbowl stopped early.')
         finally:
             leaderboard = self.trivia.leaderboard()
             
