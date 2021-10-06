@@ -8,6 +8,7 @@ import urllib
 
 import common.constants as const
 
+from common.anilist import anilist_search
 from common.mal import mal_search, mal_rand_series
 from common.utils import find_true_name, gen_uhtml_img_code, curr_cal_date, \
                          monospace_table_row, is_url
@@ -184,11 +185,11 @@ class UhtmlCommand(Command):
 
         elif self.command == 'anime':
             query = ' '.join(self.args)
-            self.msg += await mal_search('anime', query)
+            self.msg += await anilist_search('anime', query, self.bot.anilist_man)
 
         elif self.command == 'manga':
             query = ' '.join(self.args)
-            self.msg += await mal_search('manga', query)
+            self.msg += await anilist_search('manga', query, self.bot.anilist_man)
 
         elif self.command == 'randanime':
             submediums = list(set(const.ANIME_TYPES) & set(self.args)) if self.args else ['']

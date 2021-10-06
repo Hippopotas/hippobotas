@@ -242,7 +242,7 @@ class ItemInfo(InfoBox):
                        'padding:5px;'
                       f'border-bottom: 3px solid {self.border_color}')
 
-        ongoing_color = '#E0DD24' if kwargs['ongoing'] == 'Ongoing' else '#00FF00'
+        ongoing_color = '#00FF00' if kwargs['ongoing'] == 'FINISHED' else '#E0DD24'
 
         status_style = ('color:#555;'
                         'font-size:10px;'
@@ -270,8 +270,9 @@ class ItemInfo(InfoBox):
                     self.html.td(style=status_style, _t=kwargs['score'])
 
                 with self.html.tr():
-                    self.html.td(colspan=3, style='width:300px; padding:5px',
-                                 _t=kwargs['synopsis'])
+                    with self.html.td(colspan=3, style='width:360px; padding:5px'):
+                        self.html.div(style='overflow-y: scroll; max-height: 100px',
+                                      _t=kwargs['synopsis'])
 
         return self.uglify()
 
