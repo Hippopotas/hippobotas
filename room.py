@@ -7,10 +7,12 @@ from user import User
 
 
 class Room:
-    def __init__(self, room):
+    def __init__(self, room, bot):
+        self.bot = bot
         self.roomname = room
         self.users = []
-        self.trivia = TriviaGame(self.roomname)
+
+        self.trivia = TriviaGame(self.roomname, self.bot)
     
     def add_user(self, username, rank):
         self.users.append(User(username, rank))
@@ -27,8 +29,10 @@ class Room:
 
         return None
 
-    async def trivia_game(self, putter, i_putter, n=10, diff=3,
-                          categories=['all'], excludecats=None, by_rating=False, autoskip=20):
+    async def trivia_game(self, n=10, diff=3, categories=['all'],
+                          excludecats=None, by_rating=False, autoskip=20):
+        putter = self.bot.outgoing.put
+
         if self.trivia.active:
             await putter(self.roomname + '|There is already a running trivia!')
             return
@@ -47,7 +51,7 @@ class Room:
 
                 # Autoskip handling
                 if autoskip:
-                    asyncio.create_task(self.trivia.autoskip(autoskip, i_putter))
+                    asyncio.create_task(self.trivia.autoskip(autoskip, self.bot.incoming.put))
 
                 await putter(self.roomname + '|' + curr_question[0])
                 self.trivia.q_active.set()
@@ -74,8 +78,10 @@ class Room:
 
             await putter(self.roomname + '|' + msg)
 
-    async def quizbowl_game(self, putter, i_putter, n=10, diff=3,
-                            categories=['all'], excludecats=None, by_rating=False, autoskip=20):
+    async def quizbowl_game(self, n=10, diff=3, categories=['all'],
+                            excludecats=None, by_rating=False, autoskip=20):
+        putter = self.bot.outgoing.put
+
         if self.trivia.active:
             await putter(self.roomname + '|There is already a running trivia!')
             return
@@ -89,7 +95,7 @@ class Room:
 
                 await asyncio.sleep(5)
 
-                asyncio.create_task(self.trivia.quizbowl_question(curr_question[0], autoskip, putter, i_putter))
+                asyncio.create_task(self.trivia.quizbowl_question(curr_question[0], autoskip, putter, self.bot.incoming.put))
                 self.trivia.q_active.set()
 
                 await self.trivia.correct.wait()

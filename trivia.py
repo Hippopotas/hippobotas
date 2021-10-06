@@ -93,12 +93,13 @@ def check_answer(guess, answers, exact=False):
 
 
 class TriviaGame:
-    def __init__(self, room):
+    def __init__(self, room, bot):
         self.active = False
         self.q_active = asyncio.Event()
         self.correct = asyncio.Event()
         self.answers = []
 
+        self.bot = bot
         self.room = room
         self.questions = QuestionList(self.room)
 
@@ -173,7 +174,7 @@ class TriviaGame:
         self.questions.excludecats = excludecats
         self.questions.by_rating = by_rating
 
-        asyncio.create_task(self.questions.gen_list(n=n, quizbowl=quizbowl, is_dex=is_dex, anagrams=anagrams),
+        asyncio.create_task(self.questions.gen_list(n, self.bot, quizbowl=quizbowl, is_dex=is_dex, anagrams=anagrams),
                             name='tquestions-{}'.format(self.room))
 
     def update_scores(self, user):
@@ -228,7 +229,7 @@ class QuestionList:
         self.category_params = []
         self.max_rank = 0
 
-    async def gen_list(self, n, quizbowl=False, is_dex=False, anagrams=False):
+    async def gen_list(self, n, bot, quizbowl=False, is_dex=False, anagrams=False):
         self.num_qs = n
         async with aiohttp.ClientSession() as session:
             if self.room == const.ANIME_ROOM:
@@ -236,9 +237,9 @@ class QuestionList:
                     if is_dex:
                         await self.gen_mangadex_question(session)
                     elif quizbowl:
-                        await self.gen_am_qbowl_question(session)
+                        await self.gen_am_qbowl_question(session, bot.anilist_man)
                     else:
-                        await self.gen_am_question(session, anagrams=anagrams)
+                        await self.gen_am_question(session, bot.anilist_man, anagrams=anagrams)
 
             elif self.room == const.LEAGUE_ROOM:
                 for _ in range(n):
@@ -279,7 +280,7 @@ class QuestionList:
             return url[:-3] + 'jpg'
         return url
 
-    async def gen_am_base(self, session):
+    async def gen_am_base(self, session, anilist_man):
         query = '''
         query ($page: Int, $perpage: Int) {
             Page (page: $page, perPage: $perpage) {
@@ -379,15 +380,16 @@ class QuestionList:
                 'perpage': 1
             }
 
-            async with session.post(const.ANILIST_API, json={'query': query, 'variables': query_vars}) as r:
-                resp = await r.json()
-                if r.status != 200:
-                    for task in asyncio.all_tasks():
-                        if task.get_name() == 'trivia-{}'.format(self.room):
-                            task.cancel()
-                            return
+            async with anilist_man.lock():
+                async with session.post(const.ANILIST_API, json={'query': query, 'variables': query_vars}) as r:
+                    resp = await r.json()
+                    if r.status != 200:
+                        for task in asyncio.all_tasks():
+                            if task.get_name() == 'trivia-{}'.format(self.room):
+                                task.cancel()
+                                return
 
-                self.max_rank = resp['data']['Page']['pageInfo']['total']
+                    self.max_rank = resp['data']['Page']['pageInfo']['total']
 
         rank = 0
         if self.max_rank < self.num_qs:
@@ -410,23 +412,22 @@ class QuestionList:
             'page': rank,
             'perpage': 1
         }
-        async with session.post(const.ANILIST_API, json={'query': query, 'variables': roll_query_vars}) as r:
-            resp = await r.json()
+        async with anilist_man.lock():
+            async with session.post(const.ANILIST_API, json={'query': query, 'variables': roll_query_vars}) as r:
+                resp = await r.json()
 
-            if r.status != 200:
-                for task in asyncio.all_tasks():
-                    if task.get_name() == 'trivia-{}'.format(self.room):
-                        task.cancel()
-                        return
+                if r.status != 200:
+                    for task in asyncio.all_tasks():
+                        if task.get_name() == 'trivia-{}'.format(self.room):
+                            task.cancel()
+                            return
 
-            series_data = resp['data']['Page']['media'][0]
+                series_data = resp['data']['Page']['media'][0]
 
         aliases = []
         for title in series_data['title'].values():
             if title:
                 aliases.append(title)
-
-        await asyncio.sleep(1)
 
         return {'img_url': series_data['coverImage']['large'],
                 'description': series_data['description'],
@@ -434,11 +435,11 @@ class QuestionList:
                 'rank': rank,
                 'id': series_data['id']}
 
-    async def gen_am_question(self, session, anagrams=False):
-        base = await self.gen_am_base(session)
+    async def gen_am_question(self, session, anilist_man, anagrams=False):
+        base = await self.gen_am_base(session, anilist_man)
 
         while self.duplicate_check(base['id']) or not base['img_url']:
-            base = await self.gen_am_base(session)
+            base = await self.gen_am_base(session, anilist_man)
 
         self.q_bases.append(base['id'])
 
@@ -454,10 +455,10 @@ class QuestionList:
         await self.questions.put(['/adduhtml {}, {}'.format(UHTML_NAME, img_url),
                                   base['answers']])
 
-    async def gen_am_qbowl_question(self, session):
-        base = await self.gen_am_base(session)
+    async def gen_am_qbowl_question(self, session, anilist_man):
+        base = await self.gen_am_base(session, anilist_man)
         while self.duplicate_check(base['id']) or not base['description']:
-            base = await self.gen_am_base(session)
+            base = await self.gen_am_base(session, anilist_man)
 
         self.q_bases.append(base['id'])
 

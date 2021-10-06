@@ -127,7 +127,7 @@ def trivia_arg_parser(s):
     '''
     parser = argparse.ArgumentParser()
     parser.add_argument('-c', '--categories', nargs='*', default=['all'])
-    parser.add_argument('-cx', '--excludecats', action='store_true')
+    parser.add_argument('-cx', '--excludecats', nargs='*', default=None)
     parser.add_argument('-d', '--diff', type=int, default=3)
     parser.add_argument('-q', '--quizbowl', action='store_true')
     parser.add_argument('-r', '--byrating', action='store_true')
@@ -197,6 +197,8 @@ class Bot:
             for i, _ in enumerate(f):
                 pass
             self.num_typing_sentences = i+1
+
+        self.anilist_man = ApiManager(0.7)
 
         self.gachaman = GachaManager()
 
@@ -805,7 +807,7 @@ class Bot:
             await self.outgoing.put('|/avatar 97')
 
             for room in JOINLIST:
-                self.roomlist[room] = Room(room)
+                self.roomlist[room] = Room(room, self)
                 await self.outgoing.put('|/join ' + room)
 
 
@@ -1353,9 +1355,7 @@ class Bot:
                 elif args.quizbowl:
                     msg = 'Starting a round of quizbowl with {} questions. ' \
                           'Type your answers to guess!'.format(args.len)
-                    asyncio.create_task(self.roomlist[room].quizbowl_game(self.outgoing.put,
-                                                                          self.incoming.put,
-                                                                          args.len,
+                    asyncio.create_task(self.roomlist[room].quizbowl_game(args.len,
                                                                           args.diff,
                                                                           args.categories,
                                                                           args.excludecats,
@@ -1366,9 +1366,7 @@ class Bot:
                     timer_msg = f', with a {args.autoskip} second timer' if args.autoskip else ''
 
                     msg = f'Starting a trivia round of {args.len} questions{timer_msg}. Type your answers to guess!'
-                    asyncio.create_task(self.roomlist[room].trivia_game(self.outgoing.put,
-                                                                        self.incoming.put,
-                                                                        args.len,
+                    asyncio.create_task(self.roomlist[room].trivia_game(args.len,
                                                                         args.diff,
                                                                         args.categories,
                                                                         args.excludecats,
