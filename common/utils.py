@@ -53,7 +53,10 @@ def gen_uhtml_img_code(url, height_resize=300, width_resize=None,
     kwarg_opts = ''
     for k in kwargs:
         kwarg_opts += f'{k}={kwargs[k]} '
-    uhtml = f'<img src=\'{url}\' width={w} height={h} {kwarg_opts}>'
+
+    img_url = url if url.startswith('https') else url.replace('http', 'https', 1)
+
+    uhtml = f'<img src="{img_url}" width={w} height={h} {kwarg_opts}>'
     if center:
         uhtml = f'<center>{uhtml}</center>'
 
