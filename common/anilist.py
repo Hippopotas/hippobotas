@@ -1,5 +1,6 @@
 import aiohttp
 import asyncio
+import json
 import random
 
 import common.constants as const
@@ -78,6 +79,7 @@ async def anilist_search(medium, search, anilist_man):
         title = series_data['title']['romaji']
 
     parts = 'Episodes' if medium == 'anime' else 'Chapters'
+    score = f'{series_data["averageScore"]}%' if series_data['averageScore'] else 'N/A'
 
     item_info = ItemInfo(title, mal_url, 'mal')
 
@@ -85,7 +87,7 @@ async def anilist_search(medium, search, anilist_man):
               'al_link': f'https://anilist.co/{medium}/{series_data["id"]}',
               'ongoing': series_data['status'],
               'parts': f'{parts}: {series_data[parts.lower()]}',
-              'score': f'{series_data["averageScore"]}%',
+              'score': score,
               'synopsis': series_data['description']}
 
     uhtml = item_info.animanga(**kwargs)
@@ -103,7 +105,6 @@ async def anilist_rand_series(medium, anilist_man, genres=[], tags=[]):
             media (CATEGORIES_PLACEHOLDER minimumTagRank: 50, type: TYPE_PLACEHOLDER, isAdult: false) {
                 id
                 idMal
-                description
                 title {
                     english
                     romaji
@@ -111,6 +112,11 @@ async def anilist_rand_series(medium, anilist_man, genres=[], tags=[]):
                 coverImage {
                     extraLarge
                 }
+                status
+                episodes
+                chapters
+                description
+                averageScore
             }
         }
     }
@@ -118,9 +124,9 @@ async def anilist_rand_series(medium, anilist_man, genres=[], tags=[]):
 
     category_params = []
     if genres:
-        category_params = f'format_in: {", ".join(genres)}'
+        category_params.append(f'genre_in: {json.dumps(genres)}')
     if tags:
-        category_params = f'format_in: {", ".join(tags)}'
+        category_params.append(f'tag_in: {json.dumps(tags)}')
 
     category_params_str = ','.join(category_params)
     if category_params_str:
@@ -151,7 +157,24 @@ async def anilist_rand_series(medium, anilist_man, genres=[], tags=[]):
             
                 series_data = resp['data']['Page']['media'][0]
 
-    all_titles = series_data['title']
-    title = all_titles['english'] if all_titles['english'] else all_titles['romaji']
+    mal_url = f'https://myanimelist.net/{medium}/{series_data["idMal"]}'
+    img_uhtml = gen_uhtml_img_code(series_data['coverImage']['extraLarge'], dims=(65, 100))
+    title = series_data['title']['english']
+    if not title:
+        title = series_data['title']['romaji']
 
-    return f'hippo{medium}{series_data["idMal"]}, {title} https://anilist.co/{medium}/{series_data["id"]}'
+    parts = 'Episodes' if medium == 'anime' else 'Chapters'
+    score = f'{series_data["averageScore"]}%' if series_data['averageScore'] else 'N/A'
+
+    item_info = ItemInfo(title, mal_url, 'mal')
+
+    kwargs = {'img_uhtml': img_uhtml,
+              'al_link': f'https://anilist.co/{medium}/{series_data["id"]}',
+              'ongoing': series_data['status'],
+              'parts': f'{parts}: {series_data[parts.lower()]}',
+              'score': score,
+              'synopsis': series_data['description']}
+
+    uhtml = item_info.animanga(**kwargs)
+
+    return f'hippo{medium}{series_data["idMal"]}, {uhtml}'
