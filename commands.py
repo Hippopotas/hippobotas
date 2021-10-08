@@ -191,14 +191,32 @@ class UhtmlCommand(Command):
             self.msg += await anilist_search('manga', query, self.bot.anilist_man)
 
         elif self.command == 'randanime':
-            genres = list(set(const.ANILIST_GENRES) & set(self.args)) if self.args else []
-            tags = list(set(const.ANILIST_TAGS) & set(self.args)) if self.args else []
+            genres = []
+            tags = []
+
+            true_args = list(map(find_true_name, self.args))
+
+            for g in const.ANILIST_GENRES:
+                if find_true_name(g) in true_args:
+                    genres.append(g)
+            for t in list(const.ANILIST_TAGS):
+                if find_true_name(t) in true_args:
+                    tags.append(t)
 
             self.msg += await anilist_rand_series('anime', self.bot.anilist_man, genres=genres, tags=tags)
 
         elif self.command == 'randmanga':            
-            genres = list(set(const.ANILIST_GENRES) & set(self.args)) if self.args else []
-            tags = list(set(const.ANILIST_TAGS) & set(self.args)) if self.args else []
+            genres = []
+            tags = []
+
+            true_args = list(map(find_true_name, self.args))
+
+            for g in const.ANILIST_GENRES:
+                if find_true_name(g) in true_args:
+                    genres.append(g)
+            for t in list(const.ANILIST_TAGS):
+                if find_true_name(t) in true_args:
+                    tags.append(t)
 
             self.msg += await anilist_rand_series('manga', self.bot.anilist_man, genres=genres, tags=tags)
 
