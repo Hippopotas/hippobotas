@@ -171,7 +171,7 @@ class Bot:
             self.num_typing_sentences = i+1
 
         self.anilist_man = ApiManager(0.7)
-        self.mal_man = ApiManager(2)
+        self.mal_man = ApiManager(2.1)
 
         self.roomdata_man = DatabaseManager(const.ROOMDATA_DB)
         self.gachaman = GachaManager()

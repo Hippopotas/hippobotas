@@ -57,8 +57,8 @@ async def anilist_search(medium, search, anilist_man):
 
     series_data = {}
 
-    async with aiohttp.ClientSession() as session:
-        async with anilist_man.lock():
+    async with anilist_man.lock():
+        async with aiohttp.ClientSession() as session:
             async with session.post(const.ANILIST_API, json={'query': query, 'variables': query_vars}) as r:
                 resp = await r.json()
 
@@ -178,3 +178,39 @@ async def anilist_rand_series(medium, anilist_man, genres=[], tags=[]):
     uhtml = item_info.animanga(**kwargs)
 
     return f'hippo{medium}{series_data["idMal"]}, {uhtml}'
+
+
+async def check_mal_nsfw(medium, series, anilist_man, db_man):
+    bl = await db_man.execute(f"SELECT mal_id FROM mal_banlist WHERE medium = '{medium}'")
+
+    for mal_id in bl:
+        if series == mal_id[0]:
+            return True
+
+    query = '''
+    query ($mal_id: Int) {
+        Page (page: 1, perPage: 1) {
+            pageInfo {
+                total
+            }
+            media (MEDIUM_PLACEHOLDER, idMal: $mal_id, isAdult: false) {
+                id
+            }
+        }
+    }
+    '''
+    query_vars = {'mal_id': series}
+
+    is_safe = None
+    async with anilist_man.lock():
+        async with aiohttp.ClientSession() as session:
+            # There will exist a series if isAdult is false and the series exists.
+            # This does bl any series that have a MAL ID and are not on AL.
+            is_safe = anilist_num_entries(query, query_vars, session)
+
+    if not is_safe:
+        await db_man.execute("INSERT INTO mal_banlist (medium, mal_id, manual) "
+                            f"VALUES ('{medium}', {series}, 0)")
+        return True
+    else:
+        return False

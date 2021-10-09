@@ -4,37 +4,9 @@ import datetime
 
 import common.constants as const
 
+from common.anilist import check_mal_nsfw
 from common.uhtml import UserInfo, ItemInfo
 from common.utils import find_true_name, gen_uhtml_img_code
-
-
-async def check_mal_nsfw(medium, series, db_man, mal_man):
-    bl = await db_man.execute(f"SELECT mal_id FROM mal_banlist WHERE medium = '{medium}'")
-
-    for mal_id in bl:
-        if series == mal_id[0]:
-            return True
-
-    series_data = None
-    async with mal_man.lock():
-        async with aiohttp.ClientSession() as session:
-            url = f'{const.JIKAN_API}{medium}/{series}'
-            async with session.get(url) as r:
-                series_data = await r.json()
-
-                if r.status != 200:
-                    print(f"Jikan error {r.status} on {url} in "
-                          f"check_mal_nsfw: {series_data['message']}")
-                    return False
-
-    for genre in series_data['genres']:
-        # H
-        if genre['mal_id'] == 12:
-            await db_man.execute("INSERT INTO mal_banlist (medium, mal_id, manual) "
-                                  f"VALUES ('{medium}', {series_data['mal_id']}, 0)")
-            return True
-
-    return False
 
 
 async def mal_of_ps(ps_user, db_man):
@@ -82,7 +54,7 @@ async def set_mal_user(ps_user, mal_user, db_man, mal_man):
         return f'Could not find MAL user {mal_user}.'
 
 
-async def show_mal_user(ps_user, db_man, mal_man):
+async def show_mal_user(ps_user, anilist_man, db_man, mal_man):
     mal_user = await mal_of_ps(ps_user, db_man)
     user_data = await get_mal_user(mal_user, mal_man) if mal_user else None
 
@@ -103,7 +75,7 @@ async def show_mal_user(ps_user, db_man, mal_man):
             fav_series = user_data['favorites'][medium]
             while fav_series:
                 rand_fav = random.choice(fav_series)
-                is_nsfw = await check_mal_nsfw(medium, rand_fav['mal_id'], db_man, mal_man)
+                is_nsfw = await check_mal_nsfw(medium, rand_fav['mal_id'], anilist_man, db_man)
                 if is_nsfw:
                     fav_series.remove(rand_fav)
                 else:

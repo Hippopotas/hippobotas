@@ -241,6 +241,7 @@ class UhtmlCommand(Command):
 
         elif self.command == 'mal':
             return_msg = await show_mal_user(self.mal_args.username[0],
+                                             self.bot.anilist_man,
                                              self.bot.roomdata_man,
                                              self.bot.mal_man)
 
