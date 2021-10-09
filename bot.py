@@ -23,7 +23,7 @@ import common.constants as const
 from battle import Battle
 from gacha import GachaManager
 from commands import *
-from common.mal import set_mal_user, show_mal_user, mal_user_rand_series
+from common.connections import ApiManager, DatabaseManager
 from common.steam import set_steam_user, show_steam_user, steam_user_rand_series
 from common.tcg import display_mtg_card, display_ptcg_card, display_ygo_card
 from common.utils import find_true_name, gen_uhtml_img_code, trivia_leaderboard_msg
@@ -58,34 +58,6 @@ def is_int_str(s):
         return True
     except ValueError:
         return False
-
-
-def mal_arg_parser(s, caller):
-    '''
-    Parses a mal invocation as if it were CLI input.
-
-    Args:
-        s (str): input str
-        caller (str): username of the person who invoked the command
-    
-    Returns:
-        args (Namespace): contains the arguments as methods
-    '''
-    parser = argparse.ArgumentParser()
-    parser.add_argument('-r', '--roll', type=str, nargs='*')
-    parser.add_argument('username', type=str, nargs='*', default=[caller])
-
-    args = None
-    try:
-        args = parser.parse_args(shlex.split(s))
-
-    # Incorrectly formatted input results in args = None
-    except SystemExit:
-        pass
-    except ValueError:
-        return
-
-    return args
 
 
 def steam_arg_parser(s, caller):
@@ -199,7 +171,9 @@ class Bot:
             self.num_typing_sentences = i+1
 
         self.anilist_man = ApiManager(0.7)
+        self.mal_man = ApiManager(2)
 
+        self.roomdata_man = DatabaseManager(const.ROOMDATA_DB)
         self.gachaman = GachaManager()
 
         self.mal_rooms = [const.ANIME_ROOM, const.PEARY_ROOM]
@@ -1045,13 +1019,17 @@ class Bot:
         cmd_obj = None  # Remove when all commands are refactored
 
         if command[0] in const.SIMPLE_COMMANDS:
+            if command[0] in ['mal_add', 'mal_set']:
+                cmd_kwargs['allowed_rooms'] = [const.ANIME_ROOM]
+                cmd_kwargs['min_args'] = 1
+
             cmd_obj = SimpleCommand(**cmd_kwargs)
 
         elif command[0] in const.UHTML_COMMANDS:
             cmd_kwargs['req_rank'] = '+'
             cmd_kwargs['pm_response'] = False
 
-            if command[0] in ['birthday', 'anime', 'manga', 'randanime', 'randmanga']:
+            if command[0] in ['birthday', 'anime', 'manga', 'randanime', 'randmanga', 'mal']:
                 cmd_kwargs['allowed_rooms'] = [const.ANIME_ROOM]
 
             if command[0] in ['anime', 'manga']:
@@ -1066,7 +1044,7 @@ class Bot:
         elif command[0] in ['bl_add', 'bl_list', 'bl_rm']:
             cmd_kwargs['req_rank'] = '%'
             cmd_kwargs['file'] = const.BANLISTFILE
-            cmd_kwargs['allowed_rooms'] = ['animeandmanga']
+            cmd_kwargs['allowed_rooms'] = [const.ANIME_ROOM]
             cmd_obj = BanlistCommand(**cmd_kwargs)
 
         elif command[0] in ['emote_add', 'emote_set', 'emote_list', 'emote_rm', 'emote_stats']:
@@ -1086,6 +1064,7 @@ class Bot:
                 cmd_kwargs['req_rank_pm'] = ' '
 
             cmd_obj = SongCommand(**cmd_kwargs)
+
 
         if cmd_obj: # Remove when all commands are refactored
             msg = await cmd_obj.evaluate()
@@ -1161,52 +1140,6 @@ class Bot:
             asyncio.create_task(display_ygo_card(self.outgoing.put, query))
 
         # MAL
-        elif command[0] == 'addmal' and (room in self.mal_rooms or pm):
-            if len(command) > 1:
-                ctx = room
-                if pm:
-                    ctx = 'pm'
-                asyncio.create_task(set_mal_user(self.outgoing.put, true_caller, command[1], ctx),
-                                    name='setmal-{}'.format(true_caller))
-            else:
-                msg = 'Usage: ]addmal [MYANIMELIST USERNAME]'
-
-        elif command[0] == 'mal' and (room in self.mal_rooms or pm):
-            args = None
-
-            to_parse = ''
-            if len(command) > 1:
-                to_parse = ' '.join(command[1:])
-            args = mal_arg_parser(to_parse, true_caller)
-            
-            if args:
-                args.username = find_true_name(' '.join(args.username))
-            else:
-                await self.outgoing.put(room + '| Incorrect formatting.')
-                return
-
-            mal_list = pd.read_csv(const.MALFILE)
-            existing_user = mal_list[mal_list['user'] == args.username]
-            if existing_user.empty:
-                msg = 'This user does not have a MAL set. Please use ]addmal to set a valid account.'
-            else:
-                ctx = room
-                if pm:
-                    ctx = 'pm'
-                mal_user = existing_user.iloc[0]['mal']
-
-                if args.roll is not None:
-                    if args.roll == []:
-                        args.roll = ['anime', 'manga']
-
-                    asyncio.create_task(mal_user_rand_series(self.outgoing.put, mal_user,
-                                                             caller, args.roll, ctx),
-                                        name='randmal-{}'.format(args.username))
-                else:
-                    if not (User.compare_ranks(caller[0], '+')):
-                        ctx = 'pm'
-                    asyncio.create_task(show_mal_user(self.outgoing.put, mal_user, true_caller, ctx),
-                                        name='showmal-{}'.format(args.username))
 
         # Steam
         elif command[0] == 'addsteam' and (room in self.steam_rooms or pm):

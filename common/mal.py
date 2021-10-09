@@ -1,98 +1,96 @@
 import aiohttp
-import asyncio
-import json
-import pandas as pd
 import random
-
-from pandas.io import parsers
+import datetime
 
 import common.constants as const
 
 from common.uhtml import UserInfo, ItemInfo
 from common.utils import find_true_name, gen_uhtml_img_code
 
-async def check_mal_nsfw(medium, series):
-    bl = json.load(open(const.BANLISTFILE))
-    if str(series) in bl[medium]:
-        return True
 
-    async with aiohttp.ClientSession(trust_env=True) as session:
-        retry = 0
-        while retry < 3:
-            async with session.get(const.JIKAN_API + '{}/{}'.format(medium, series)) as r:
-                resp = await r.text()
-                series_data = json.loads(resp)
+async def check_mal_nsfw(medium, series, db_man, mal_man):
+    bl = await db_man.execute(f"SELECT mal_id FROM mal_banlist WHERE medium = '{medium}'")
+
+    for mal_id in bl:
+        if series == mal_id[0]:
+            return True
+
+    series_data = None
+    async with mal_man.lock():
+        async with aiohttp.ClientSession() as session:
+            url = f'{const.JIKAN_API}{medium}/{series}'
+            async with session.get(url) as r:
+                series_data = await r.json()
 
                 if r.status != 200:
-                    retry += 1
-                    await asyncio.sleep(2)
-                    continue
+                    print(f"Jikan error {r.status} on {url} in "
+                          f"check_mal_nsfw: {series_data['message']}")
+                    return False
 
-                for genre in series_data['genres']:
-                    if genre['mal_id'] == 12:
-                        return True
+    for genre in series_data['genres']:
+        # H
+        if genre['mal_id'] == 12:
+            await db_man.execute("INSERT INTO mal_banlist (medium, mal_id, manual) "
+                                  f"VALUES ('{medium}', {series_data['mal_id']}, 0)")
+            return True
 
-                return False
-
-
-async def get_mal_user(username, retries=5):
-    async with aiohttp.ClientSession(trust_env=True) as session:
-        retry = 0
-        while retry < retries:
-            async with session.get(const.JIKAN_API + 'user/{}'.format(username)) as r:
-                resp = await r.text()
-                userdata = json.loads(resp)
-
-                if r.status == 404 or r.status == 400:
-                    return None
-                elif r.status != 200:
-                    print('Status {} when getting {} MAL'.format(r.status, username))
-                    await asyncio.sleep(10)
-
-                    retry += 1
-                    continue
-
-                return userdata
+    return False
 
 
-async def set_mal_user(putter, ps_user, mal_user, ctx):
-    prefix = f'{ctx}|'
-    if ctx == 'pm':
-        prefix = f'|/w {ps_user},'
+async def mal_of_ps(ps_user, db_man):
+    mal_user = await db_man.execute("SELECT mal_username FROM mal_users "
+                                       f"WHERE ps_username = '{ps_user}'")
 
-    userdata = await get_mal_user(mal_user)
-    if userdata:
-        mal_list = pd.read_csv(const.MALFILE)
-
-        existing_user = mal_list[mal_list['user'] == ps_user]
-        if existing_user.empty:
-            new_user = pd.DataFrame([[ps_user, mal_user]], columns=['user', 'mal'])
-            mal_list = mal_list.append(new_user)
-        else:
-            mal_list.loc[mal_list['user'] == ps_user, 'mal'] = mal_user
-
-        mal_list.to_csv(const.MALFILE, index=False)
-        await putter(f'{prefix} Set {ps_user}\'s MAL to {mal_user}.')
+    if mal_user:
+        return mal_user[0][0]
     else:
-        await putter(f'{prefix} Could not find MAL user {mal_user}.')
+        return
 
 
-async def show_mal_user(putter, username, true_caller, ctx):
-    prefix = f'{ctx}|'
-    if ctx == 'pm':
-        prefix = f'|/w {true_caller},'
+async def get_mal_user(username, mal_man):
+    async with mal_man.lock():
+        async with aiohttp.ClientSession() as session:
+            url = f'{const.JIKAN_API}user/{username}'
+            async with session.get(url) as r:
+                user_data = await r.json()
 
-    userdata = await get_mal_user(username)
-    if userdata:
-        if ctx == 'pm':
-            user_url = userdata['url']
-            await putter(f'{prefix} {user_url}')
-            return
+                if r.status != 200:
+                    print(f"Jikan error {r.status} on {url} when "
+                          f"fetching {username} profile: {user_data['message']}")
+                    return None
 
+                return user_data
+
+
+async def set_mal_user(ps_user, mal_user, db_man, mal_man):
+    user_data = await get_mal_user(mal_user, mal_man)
+
+    if user_data:
+        # Can change to actual UPSERT when sqlite3 gets updated to have it
+        current_user = await mal_of_ps(ps_user, db_man)
+
+        if current_user:
+            current_time = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            await db_man.execute(f"UPDATE mal_users SET mal_username = {mal_user}, "
+                                                      f"last_updated = {current_time}")
+        else:
+            await db_man.execute("INSERT INTO mal_users (ps_username, mal_username) "
+                                  f"VALUES ('{ps_user}', '{mal_user}')")
+
+        return f"Set {ps_user}'s MAL to {mal_user}."
+    else:
+        return f'Could not find MAL user {mal_user}.'
+
+
+async def show_mal_user(ps_user, db_man, mal_man):
+    mal_user = await mal_of_ps(ps_user, db_man)
+    user_data = await get_mal_user(mal_user, mal_man)
+
+    if user_data:
         # Set image
         img_url = const.IMG_NOT_FOUND
-        if userdata['image_url']:
-            img_url = userdata['image_url']
+        if user_data['image_url']:
+            img_url = user_data['image_url']
         img_uhtml = gen_uhtml_img_code(img_url, height_resize=100, width_resize=125)
 
         # Set favorite series
@@ -102,10 +100,10 @@ async def show_mal_user(putter, username, true_caller, ctx):
             top_series_url = ''
             top_series_img = const.IMG_NOT_FOUND
 
-            fav_series = userdata['favorites'][medium]
+            fav_series = user_data['favorites'][medium]
             while fav_series:
                 rand_fav = random.choice(fav_series)
-                is_nsfw = await check_mal_nsfw(medium, rand_fav['mal_id'])
+                is_nsfw = await check_mal_nsfw(medium, rand_fav['mal_id'], db_man, mal_man)
                 if is_nsfw:
                     fav_series.remove(rand_fav)
                 else:
@@ -117,16 +115,16 @@ async def show_mal_user(putter, username, true_caller, ctx):
             top_series_uhtml[medium] = (top_series, top_series_url,
                                         gen_uhtml_img_code(top_series_img, height_resize=64))
 
-        user_info = UserInfo(userdata['username'], userdata['url'], 'mal')
+        user_info = UserInfo(user_data['username'], user_data['url'], 'mal')
         kwargs = {'profile_pic': img_uhtml,
-                  'anime_completed': userdata['anime_stats']['completed'],
-                  'anime_watching': userdata['anime_stats']['watching'],
-                  'ep_watched': userdata['anime_stats']['episodes_watched'],
-                  'anime_score': userdata['anime_stats']['mean_score'],
-                  'manga_completed': userdata['manga_stats']['completed'],
-                  'manga_reading': userdata['manga_stats']['reading'],
-                  'chp_read': userdata['manga_stats']['chapters_read'],
-                  'manga_score': userdata['manga_stats']['mean_score'],
+                  'anime_completed': user_data['anime_stats']['completed'],
+                  'anime_watching': user_data['anime_stats']['watching'],
+                  'ep_watched': user_data['anime_stats']['episodes_watched'],
+                  'anime_score': user_data['anime_stats']['mean_score'],
+                  'manga_completed': user_data['manga_stats']['completed'],
+                  'manga_reading': user_data['manga_stats']['reading'],
+                  'chp_read': user_data['manga_stats']['chapters_read'],
+                  'manga_score': user_data['manga_stats']['mean_score'],
                   'anime_img': top_series_uhtml['anime'][2],
                   'manga_img': top_series_uhtml['manga'][2],
                   'anime_link': top_series_uhtml['anime'][1],
@@ -134,72 +132,7 @@ async def show_mal_user(putter, username, true_caller, ctx):
                   'manga_link': top_series_uhtml['manga'][1],
                   'manga_title': top_series_uhtml['manga'][0]}
 
-        mal_uhtml = user_info.mal_user(**kwargs)
+        return user_info.mal_user(**kwargs)
 
-        await putter(f'{prefix}/adduhtml {username}-mal, {mal_uhtml}')
     else:
-        await putter(f'{prefix} Could not find the MAL account {username}. ')
-
-
-async def update_mal_user_series(username, media):
-    userfile = f'data/mal/{username}_series.json'
-    try:
-        all_series_list = json.load(open(userfile))
-    except FileNotFoundError:
-        all_series_list = {'anime': [], 'manga': []}
-
-    for medium in media:
-        in_progress = 'reading' if medium == 'manga' else 'watching'
-
-        for status in (in_progress, 'completed'):
-            series_list = {medium: 'placeholder'}
-            page = 1
-            while series_list[medium]:
-                series_list = await get_mal_user(f'{username}/{medium}list/{status}/{page}')
-
-                if series_list:
-                    all_series_list[medium] += series_list[medium]
-                else:
-                    break
-
-                page += 1
-                await asyncio.sleep(0.5)    # Jikan rate-limits to 2 requests/second.
-
-    json.dump(all_series_list, open(userfile, 'w'), indent=4)
-    return all_series_list
-
-
-async def mal_user_rand_series(putter, username, caller, media, ctx, update=True):
-    true_caller = find_true_name(caller)
-
-    prefix = f'{ctx}|'
-    if ctx == 'pm':
-        prefix = f'|/w {true_caller},'
-
-    try:
-        all_series_list = json.load(open(f'data/mal/{username}_series.json'))
-    except FileNotFoundError:
-        update = False
-        all_series_list = await update_mal_user_series(username, media)
-
-    roll_pool = sum(all_series_list.values(), [])
-    while roll_pool:
-        rand_series = random.choice(roll_pool)
-
-        medium = 'anime' if find_true_name(rand_series['type']) in const.ANIME_TYPES else 'manga'
-        is_nsfw = await check_mal_nsfw(medium, rand_series['mal_id'])
-        if is_nsfw:
-            roll_pool.remove(rand_series)
-        else:
-            rand_title = rand_series['title']
-            break
-
-    if not roll_pool:
-        await putter(f'{prefix} No series found for {username} with the given specifications.')
-        return
-
-    if update:
-        asyncio.create_task(update_mal_user_series(username, media))
-
-    msg = f'{prefix} {caller} rolled {rand_title}'
-    await putter(msg)
+        return f'Could not find the MAL account {ps_user}. They may need to use ]mal_add first.'

@@ -14,8 +14,10 @@ PEARY_ROOM = 'bikinibottom'
 
 MAX_FRIENDS = 100
 
-SIMPLE_COMMANDS = ['help', 'dab', 'owo', 'google', 'joogle', 'bing', 'jing', 'jibun']
-UHTML_COMMANDS = ['plebs', 'calendar', 'birthday', 'anime', 'manga', 'randanime', 'randmanga']
+SIMPLE_COMMANDS = ['help', 'dab', 'owo', 'google', 'joogle', 'bing', 'jing', 'jibun', 'mal_add', 'mal_set']
+UHTML_COMMANDS = ['plebs', 'calendar', 'birthday',
+                  'anime', 'manga', 'randanime', 'randmanga',
+                  'mal']
 
 TIMER_USER = 'T*'
 
@@ -45,6 +47,8 @@ SONGFILE = os.path.join(BASE_DIR, 'data/songs.json')
 SUCKFILE = os.path.join(BASE_DIR, 'data/suck.txt')
 TOPICFILE = os.path.join(BASE_DIR, 'data/topics.json')
 WPMFILE = os.path.join(BASE_DIR, 'data/wpm.txt')
+
+ROOMDATA_DB = os.path.join(BASE_DIR, 'data/roomdata.db')
 
 MALFILE = os.path.join(BASE_DIR, 'data/mal.txt')
 STEAMFILE = os.path.join(BASE_DIR, 'data/steam.txt')

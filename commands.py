@@ -4,13 +4,16 @@ import json
 import random
 import re
 import requests
+import sqlite3
 import urllib
 
 import common.constants as const
 
 from common.anilist import anilist_search, anilist_rand_series
+from common.arg_parsers import mal_arg_parser
+from common.mal import set_mal_user, show_mal_user
 from common.utils import find_true_name, gen_uhtml_img_code, curr_cal_date, \
-                         monospace_table_row, is_url
+                         monospace_table_row, is_url, is_uhtml
 from user import User
 
 
@@ -96,6 +99,9 @@ class SimpleCommand(Command):
             self.allowed_rooms = [const.ANIME_ROOM]
             self.room_only = True
 
+        if self.command == 'mal_set':
+            self.command = 'mal_add'
+
 
     async def evaluate(self):
         if self.check_eligible():
@@ -119,6 +125,12 @@ class SimpleCommand(Command):
         elif self.command == 'jibun':
             self.msg = '/announce JIBUN WOOOOOOOOOO'
 
+        elif self.command == 'mal_add':
+            mal_user = ''.join(self.args)
+            self.msg += await set_mal_user(self.true_caller, mal_user,
+                                           self.bot.roomdata_man,
+                                           self.bot.mal_man)
+
         return self.msg
 
 
@@ -130,14 +142,21 @@ class UhtmlCommand(Command):
         super().__init__(**kwargs)
 
         if self.is_pm:
-            self.min_args += 1
-            self.usage_msg += '[ROOM] '
+            if self.command == 'mal':
+                self.room = const.ANIME_ROOM
+            else:
+                self.min_args += 1
+                self.usage_msg += '[ROOM] '
 
         if self.command in ['anime', 'manga']:
             self.usage_msg += 'SERIES NAME'
 
         if self.command in ['randanime', 'randmanga']:
             self.usage_msg += '[GENRES]'
+
+        if self.command == 'mal':
+            self.usage_msg += '[USERNAME] [-r CATEGORIES]'
+            self.mal_args = mal_arg_parser(' '.join(self.args), self.true_caller)
 
 
     async def evaluate(self):
@@ -219,6 +238,19 @@ class UhtmlCommand(Command):
                     tags.append(t)
 
             self.msg += await anilist_rand_series('manga', self.bot.anilist_man, genres=genres, tags=tags)
+
+        elif self.command == 'mal':
+            return_msg = await show_mal_user(self.mal_args.username[0],
+                                             self.bot.roomdata_man,
+                                             self.bot.mal_man)
+
+            if is_uhtml(return_msg):
+                self.msg += f'hippo-{self.mal_args.username[0]}mal, {return_msg}'
+            elif self.is_pm:
+                await self.pm_msg(return_msg)
+                return
+            else:
+                self.msg = return_msg
 
         return self.msg
 

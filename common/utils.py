@@ -8,6 +8,11 @@ from PIL import Image
 from common.constants import IMG_NOT_FOUND
 
 
+def is_uhtml(text):
+    """ Returns whether text is an html string. """
+    return text.startswith('<')
+
+
 def find_true_name(text):
     """ Return only non-uppercase alphanumeric characters. """
     return re.sub(r'[^a-zA-Z0-9]', '', text).lower()
