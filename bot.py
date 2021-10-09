@@ -1074,7 +1074,8 @@ class Bot:
             else:
                 msg = f'{cmd_obj.room}|{msg}'
 
-            await self.outgoing.put(msg)
+            if msg:
+                await self.outgoing.put(msg)
             return
 
         # Typing test

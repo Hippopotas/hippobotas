@@ -84,7 +84,7 @@ async def set_mal_user(ps_user, mal_user, db_man, mal_man):
 
 async def show_mal_user(ps_user, db_man, mal_man):
     mal_user = await mal_of_ps(ps_user, db_man)
-    user_data = await get_mal_user(mal_user, mal_man)
+    user_data = await get_mal_user(mal_user, mal_man) if mal_user else None
 
     if user_data:
         # Set image
