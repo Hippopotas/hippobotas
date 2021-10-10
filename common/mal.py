@@ -42,9 +42,9 @@ async def set_mal_user(ps_user, mal_user, db_man, mal_man):
         current_user = await mal_of_ps(ps_user, db_man)
 
         if current_user:
-            current_time = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-            await db_man.execute(f"UPDATE mal_users SET mal_username = {mal_user}, "
-                                                      f"last_updated = {current_time}")
+            await db_man.execute(f"UPDATE mal_users SET mal_username = '{mal_user}', "
+                                                       "last_updated = CURRENT_TIMESTAMP "
+                                        f"WHERE ps_username = '{ps_user}'")
         else:
             await db_man.execute("INSERT INTO mal_users (ps_username, mal_username) "
                                   f"VALUES ('{ps_user}', '{mal_user}')")
@@ -107,4 +107,4 @@ async def show_mal_user(ps_user, anilist_man, db_man, mal_man):
         return user_info.mal_user(**kwargs)
 
     else:
-        return f'Could not find the MAL account {ps_user}. They may need to use ]mal_add first.'
+        return f'Could not find the MAL account for {ps_user}. They may need to use ]mal_add first.'

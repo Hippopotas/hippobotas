@@ -240,13 +240,14 @@ class UhtmlCommand(Command):
             self.msg += await anilist_rand_series('manga', self.bot.anilist_man, genres=genres, tags=tags)
 
         elif self.command == 'mal':
-            return_msg = await show_mal_user(self.mal_args.username[0],
+            true_mal_user = find_true_name(self.mal_args.username[0])
+            return_msg = await show_mal_user(true_mal_user,
                                              self.bot.anilist_man,
                                              self.bot.roomdata_man,
                                              self.bot.mal_man)
 
             if is_uhtml(return_msg):
-                self.msg += f'hippo-{self.mal_args.username[0]}mal, {return_msg}'
+                self.msg += f'hippo-{true_mal_user}mal, {return_msg}'
             elif self.is_pm:
                 await self.pm_msg(return_msg)
                 return
