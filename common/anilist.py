@@ -199,6 +199,7 @@ async def check_mal_nsfw(medium, series, anilist_man, db_man):
         }
     }
     '''
+    query = query.replace('MEDIUM_PLACEHOLDER', f'type: {medium.upper()}')
     query_vars = {'mal_id': series}
 
     is_safe = None
@@ -206,7 +207,7 @@ async def check_mal_nsfw(medium, series, anilist_man, db_man):
         async with aiohttp.ClientSession() as session:
             # There will exist a series if isAdult is false and the series exists.
             # This does bl any series that have a MAL ID and are not on AL.
-            is_safe = anilist_num_entries(query, query_vars, session)
+            is_safe = await anilist_num_entries(query, query_vars, session)
 
     if not is_safe:
         await db_man.execute("INSERT INTO mal_banlist (medium, mal_id, manual) "
