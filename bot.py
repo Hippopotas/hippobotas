@@ -1511,7 +1511,7 @@ class Bot:
             await self.outgoing.put('|/friend')
             return
 
-        if msg == '':
+        if not msg:
             return
 
         if pm:

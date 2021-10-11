@@ -11,7 +11,7 @@ import common.constants as const
 
 from common.anilist import anilist_search, anilist_rand_series
 from common.arg_parsers import mal_arg_parser
-from common.mal import set_mal_user, show_mal_user
+from common.mal import mal_user_rand_series, set_mal_user, show_mal_user
 from common.utils import find_true_name, gen_uhtml_img_code, curr_cal_date, \
                          monospace_table_row, is_url, is_uhtml
 from user import User
@@ -155,8 +155,14 @@ class UhtmlCommand(Command):
             self.usage_msg += '[GENRES]'
 
         if self.command == 'mal':
+            self.req_rank_pm = ' '
+
             self.usage_msg += '[USERNAME] [-r CATEGORIES]'
             self.mal_args = mal_arg_parser(' '.join(self.args), self.true_caller)
+
+            if self.mal_args.roll is not None:
+                self.req_rank = ' '
+                self.pm_response = self.is_pm
 
 
     async def evaluate(self):
@@ -240,19 +246,32 @@ class UhtmlCommand(Command):
             self.msg += await anilist_rand_series('manga', self.bot.anilist_man, genres=genres, tags=tags)
 
         elif self.command == 'mal':
-            true_mal_user = find_true_name(self.mal_args.username[0])
-            return_msg = await show_mal_user(true_mal_user,
-                                             self.bot.anilist_man,
-                                             self.bot.roomdata_man,
-                                             self.bot.mal_man)
+            true_mal_user = find_true_name(''.join(self.mal_args.username))
 
-            if is_uhtml(return_msg):
-                self.msg += f'hippo-{true_mal_user}mal, {return_msg}'
-            elif self.is_pm:
-                await self.pm_msg(return_msg)
-                return
+            if self.mal_args.roll is not None:
+                return_msg = await mal_user_rand_series(true_mal_user,
+                                                        self.bot.anilist_man,
+                                                        self.bot.roomdata_man,
+                                                        self.bot.mal_man)
+
+                if return_msg.startswith('rolled'):
+                    self.msg = f'{self.caller} {return_msg}'
+                else:
+                    self.msg = return_msg
+
             else:
-                self.msg = return_msg
+                return_msg = await show_mal_user(true_mal_user,
+                                                 self.bot.anilist_man,
+                                                 self.bot.roomdata_man,
+                                                 self.bot.mal_man)
+
+                if is_uhtml(return_msg):
+                    self.msg += f'hippo-{true_mal_user}mal, {return_msg}'
+                elif self.is_pm:
+                    await self.pm_msg(return_msg)
+                    return
+                else:
+                    self.msg = return_msg
 
         return self.msg
 
