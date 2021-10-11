@@ -249,7 +249,14 @@ class UhtmlCommand(Command):
             true_mal_user = find_true_name(''.join(self.mal_args.username))
 
             if self.mal_args.roll is not None:
+                media = ['anime', 'manga']
+                if 'anime' not in self.mal_args.roll:
+                    media.remove('anime')
+                if 'manga' not in self.mal_args.roll:
+                    media.remove('manga')
+
                 return_msg = await mal_user_rand_series(true_mal_user,
+                                                        media,
                                                         self.bot.anilist_man,
                                                         self.bot.roomdata_man,
                                                         self.bot.mal_man)

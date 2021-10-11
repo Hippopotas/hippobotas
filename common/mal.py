@@ -167,7 +167,7 @@ async def show_mal_user(ps_user, anilist_man, db_man, mal_man):
         return f'Could not find the MAL account for {ps_user}. They may need to use ]mal_add first.'
 
 
-async def mal_user_rand_series(ps_user, anilist_man, db_man, mal_man):
+async def mal_user_rand_series(ps_user, media, anilist_man, db_man, mal_man):
     mal_user = await mal_of_ps(ps_user, db_man)
 
     if not mal_user:
@@ -179,7 +179,10 @@ async def mal_user_rand_series(ps_user, anilist_man, db_man, mal_man):
     table_exists = await db_man.execute("SELECT name FROM sqlite_master "
                                             f"WHERE type='table' AND name='{table_name}'")
     if table_exists:
-        all_series = await db_man.execute(f"SELECT * FROM {table_name}")
+        db_query = f"SELECT * FROM {table_name}"
+        if len(media) == 1:
+            db_query += f" WHERE medium='{media[0]}'"
+        all_series = await db_man.execute(db_query)
 
         series = None
         is_nsfw = True
