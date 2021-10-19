@@ -30,9 +30,8 @@ async def get_mal_user(username, mal_man):
                 if r.status != 200:
                     print(f"Jikan error {r.status} on {url} when "
                           f"fetching {username} profile: {user_data['message']}")
-                    return
 
-                return user_data
+                return (r.status, user_data)
 
 
 async def update_mal_user(mal_user, db_man, mal_man):
@@ -54,9 +53,9 @@ async def update_mal_user(mal_user, db_man, mal_man):
             page = 0
             while series_list[medium]:
                 page += 1
-                series_list = await get_mal_user(f'{mal_user}/{medium}list/{status}/{page}', mal_man)
+                retcode, series_list = await get_mal_user(f'{mal_user}/{medium}list/{status}/{page}', mal_man)
 
-                if series_list and series_list[medium]:
+                if retcode == 200 and series_list[medium]:
                     values = []
                     for series in series_list[medium]:
                         # Sqlite escape
@@ -83,9 +82,9 @@ async def set_mal_user(ps_user, mal_user, db_man, mal_man):
     # Sqlite escape
     escaped_mal_user = mal_user.replace("'", "''")
 
-    user_data = await get_mal_user(mal_user, mal_man)
+    retcode, user_data = await get_mal_user(mal_user, mal_man)
 
-    if user_data:
+    if retcode == 200:
         current_user = await mal_of_ps(ps_user, db_man)
 
         if current_user == mal_user:
@@ -107,15 +106,17 @@ async def set_mal_user(ps_user, mal_user, db_man, mal_man):
         asyncio.create_task(update_mal_user(mal_user, db_man, mal_man))
 
         return f"Set {ps_user}'s MAL to {mal_user}."
+    elif retcode == 503:
+        return 'MAL is having connection issues. Try again later?'
     else:
         return f'Could not find MAL user {mal_user}.'
 
 
 async def show_mal_user(ps_user, anilist_man, db_man, mal_man):
     mal_user = await mal_of_ps(ps_user, db_man)
-    user_data = await get_mal_user(mal_user, mal_man) if mal_user else None
+    retcode, user_data = await get_mal_user(mal_user, mal_man) if mal_user else None
 
-    if user_data:
+    if retcode == 200:
         # Set image
         img_url = const.IMG_NOT_FOUND
         if user_data['image_url']:
@@ -162,6 +163,9 @@ async def show_mal_user(ps_user, anilist_man, db_man, mal_man):
                   'manga_title': top_series_uhtml['manga'][0]}
 
         return user_info.mal_user(**kwargs)
+
+    elif retcode == 503:
+        return 'MAL is having connection issues. Try again later?'
 
     else:
         return f'Could not find the MAL account for {ps_user}. They may need to use ]mal_add first.'
