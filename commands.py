@@ -275,8 +275,8 @@ class UhtmlCommand(Command):
                 if is_uhtml(return_msg):
                     self.msg += f'hippo-{true_mal_user}mal, {return_msg}'
                 elif self.is_pm:
-                    await self.pm_msg(return_msg)
-                    return
+                    self.pm_response = self.is_pm
+                    self.msg = return_msg
                 else:
                     self.msg = return_msg
 
@@ -297,6 +297,21 @@ class ModifiableCommand(Command):
     @functools.cached_property
     def json_info(self):
         return json.load(open(self.file, encoding='utf-8'))
+
+
+class DatabaseCommand(Command):
+    def __init__(self, **kwargs):
+        if kwargs['is_pm'] and len(kwargs['full_command']) > 1:
+            kwargs['room'] = kwargs['full_command'][1]
+
+        super().__init__(**kwargs)
+
+        if self.is_pm:
+            self.min_args += 1
+
+
+    def db_man(self):
+        return self.bot.roomdata_man
 
 
 class TopicCommand(ModifiableCommand):
@@ -408,22 +423,19 @@ class BanlistCommand(ModifiableCommand):
         return self.msg
 
 
-class EmoteCommand(ModifiableCommand):
+class EmoteCommand(DatabaseCommand):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
 
-        if self.command == 'emote_list':
-            self.req_rank = ' '
-            self.usage_msg += '[ROOM]'
-        elif self.command == 'emote_stats':
-            self.req_rank = ' '
-            self.usage_msg += '[ROOM]'
-        elif self.command == 'emote_add':
+        if self.command == 'emote_add':
             self.min_args += 2
-            self.usage_msg += '[ROOM] EMOTE URL'
+            self.req_rank = '#'
+            self.usage_msg += 'EMOTE URL'
         elif self.command == 'emote_rm':
             self.min_args += 1
-            self.usage_msg += '[ROOM] EMOTE'
+            self.req_rank = '#'
+            self.usage_msg += 'EMOTE'
+
 
     async def evaluate(self):
         if self.check_eligible():
@@ -439,56 +451,66 @@ class EmoteCommand(ModifiableCommand):
 
             if find_true_name(emote) != emote:
                 await self.pm_msg('Emotes must be only letters and/or numbers.')
+                return
 
             emote_url = self.args[1 + arg_offset]
             if 'discordapp' in emote_url:
                 await self.pm_msg('Discord URLs do not work as emotes.')
+                return
 
-            self.json_info[self.room][emote] = {'times_used': 0, 'url': emote_url}
-            json.dump(self.json_info, open(self.file, 'w'), indent=4)
+            emote_exists = await self.db_man.execute("SELECT * FROM emotes WHERE "
+                                                        f"room='{self.room} AND name={emote}'")
+            if emote_exists:
+                await self.pm_msg(f'{emote} already exists for {self.room}.')
+                return
+
+            await self.db_man.execute("INSERT INTO emotes (room, name, url) "
+                                        f"VALUES ('{self.room}', '{emote}', '{emote_url}')")
 
             self.msg = f'Set :{emote}: to show {emote_url}.'
         
         elif self.command == 'emote_rm':
             emote = find_true_name(self.args[arg_offset])
-            self.msg = f'{self.room} does not have emote {emote}.'
 
-            try:
-                del self.json_info[self.room][emote]
-                json.dump(self.json_info, open(self.file, 'w'), indent=4)
+            emote_exists = await self.db_man.execute("SELECT * FROM emotes WHERE "
+                                                        f"room='{self.room} AND name={emote}'")
 
-                self.msg = f'Removed {emote} from {self.room} emotes.'
-            except KeyError:
-                pass
+            if not emote_exists:
+                await self.pm_msg(f'{self.room} does not have emote {emote}.')
+                return
+
+            await self.db_man.execute("DELETE FROM emotes WHERE "
+                                        f"room='{self.room}' AND name='{emote}'")
 
         elif self.command == 'emote_list':
             self.msg = 'No emotes found.'
 
-            if self.room in self.json_info:
-                if len(self.json_info[self.room]) >= 1:
-                    self.msg = f'!code {self.room} emotes: ' + ', '.join(self.json_info[self.room])
+            emote_list = await self.db_man.execute("SELECT name FROM emotes "
+                                                        f"WHERE room='{self.room}'")
+
+            if emote_list:
+                # Flatten
+                emote_list = list(sum(emote_list, ()))
+                self.msg = f'!code {self.room} emotes: ' + ', '.join(emote_list)
 
         elif self.command == 'emote_stats':
             self.msg = f'No emotes found for {self.room}.'
 
-            if self.room in self.json_info:
-                room_emotes = self.json_info[self.room]
-                if len(room_emotes) >= 1:
-                    header_text = monospace_table_row([('Emote', 30),
-                                                       ('Times Used', 12)])
-                    header_text += '\n' + '-'*44
-                    box_text = ''
-                    for e in sorted(room_emotes,
-                                    key=lambda x: room_emotes[x]['times_used'],
-                                    reverse=True):
-                        box_text += monospace_table_row([(e, 30),
-                                                         (room_emotes[e]['times_used'], 12)])
-                        box_text += '\n'
+            emote_list = await self.db_man.execute("SELECT name, times_used FROM emotes "
+                                                    f"WHERE room='{self.room}'")
 
-                    r = requests.post(const.PASTIE_API, data=f'{header_text}\n{box_text}')
+            if emote_list:
+                header_text = monospace_table_row([('Emote', 30), ('Times Used', 12)])
+                header_text += '\n' + '-'*44
+                box_text = ''
+                for e in sorted(emote_list, key=lambda x: x[1], reverse=True):
+                    box_text += monospace_table_row([(e[0], 30), (e[1], 12)])
+                    box_text += '\n'
 
-                    if r.status_code == 200:
-                        self.msg = f"""https://pastie.io/raw/{r.json()['key']}"""
+                r = requests.post(const.PASTIE_API, data=f'{header_text}\n{box_text}')
+
+                if r.status_code == 200:
+                    self.msg = f"""https://pastie.io/raw/{r.json()['key']}"""
 
         return self.msg
 

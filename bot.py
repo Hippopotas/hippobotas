@@ -6,7 +6,6 @@ import discord
 import dotenv
 import json
 import logging
-import numpy as np
 import os
 import pandas as pd
 import random
@@ -182,9 +181,6 @@ class Bot:
         self.get_igdb_token()
 
 
-    @property
-    def room_emotes(self):
-        return json.load(open(const.EMOTEFILE))
 
 
     def reconnect(self, restart=True):
@@ -725,20 +721,31 @@ class Bot:
         Args:
             room (str): Context in which the emote was invoked
             caller (str): User who invoked the emote
-            emote (str): The emote being invoked
+            line (str): The emote being invoked
         '''
-        if room not in self.room_emotes or not User.compare_ranks(caller[0], '+'):
+        if not User.compare_ranks(caller[0], '+'):
             return
+        
+        emote_list = await self.roomdata_man.execute("SELECT name, url, times_used FROM emotes "
+                                                        f"WHERE room='{room}'")
+
+        if not emote_list:
+            return
+
+        emote_dict = {}
+        for name, url, times_used in emote_list:
+            emote_dict[name] = {'url': url, 'times_used': times_used}
 
         # Find emote
         possible_emotes = line.split(':')
-        for pe in possible_emotes:
+        for pe in possible_emotes[1:-1]:
             emote = pe.lower()
-            if emote in self.room_emotes[room]:
-                self.room_emotes[room][emote]['times_used'] += 1
-                json.dump(self.room_emotes, open(const.EMOTEFILE, 'w'), indent=4)
+            if emote in emote_dict:
+                await self.roomdata_man.execute("UPDATE emotes SET "
+                                                f"times_used={emote_dict[emote]['times_used']+1} "
+                                                f"WHERE room='{room}' AND name='{emote}'")
 
-                uhtml = gen_uhtml_img_code(self.room_emotes[room][emote]['url'], height_resize=50, alt=emote)
+                uhtml = gen_uhtml_img_code(emote_dict[emote]['url'], height_resize=50, alt=emote)
                 await self.outgoing.put(f'{room}|/adduhtml hippo-{emote}, {uhtml}')
 
 
@@ -1029,8 +1036,11 @@ class Bot:
             cmd_kwargs['req_rank'] = '+'
             cmd_kwargs['pm_response'] = False
 
-            if command[0] in ['birthday', 'anime', 'manga', 'randanime', 'randmanga', 'mal']:
+            if command[0] in ['birthday', 'anime', 'manga', 'randanime', 'randmanga']:
                 cmd_kwargs['allowed_rooms'] = [const.ANIME_ROOM]
+
+            if command[0] in ['mal']:
+                cmd_kwargs['allowed_rooms'] = [const.ANIME_ROOM, const.PEARY_ROOM]
 
             if command[0] in ['anime', 'manga']:
                 cmd_kwargs['min_args'] = 1
@@ -1051,7 +1061,7 @@ class Bot:
             if command[0] == 'emote_set':
                 cmd_kwargs['full_command'][0] = 'emote_add'
 
-            cmd_kwargs['req_rank'] = '#'
+            cmd_kwargs.usage_msg += '[ROOM] '
             cmd_kwargs['file'] = const.EMOTEFILE
             cmd_obj = EmoteCommand(**cmd_kwargs)
 
@@ -1139,8 +1149,6 @@ class Bot:
         elif command[0] == 'ygo' and room == const.TCG_ROOM and User.compare_ranks(caller[0], '+'):
             query = ' '.join(command[1:])
             asyncio.create_task(display_ygo_card(self.outgoing.put, query))
-
-        # MAL
 
         # Steam
         elif command[0] == 'addsteam' and (room in self.steam_rooms or pm):
