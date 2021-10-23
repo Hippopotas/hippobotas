@@ -1062,12 +1062,10 @@ class Bot:
                 cmd_kwargs['full_command'][0] = 'emote_add'
 
             cmd_kwargs['usage_msg'] += '[ROOM] '
-            cmd_kwargs['file'] = const.EMOTEFILE
             cmd_obj = EmoteCommand(**cmd_kwargs)
 
         elif command[0] in ['song_add', 'song_rm', 'song_list', 'randsong']:
             cmd_kwargs['req_rank'] = '%'
-            cmd_kwargs['file'] = const.SONGFILE
 
             if command[0] in ['randsong', 'song_list']:
                 cmd_kwargs['req_rank'] = '+'

@@ -512,11 +512,13 @@ class EmoteCommand(DatabaseCommand):
 
                 if r.status_code == 200:
                     self.msg = f"""https://pastie.io/raw/{r.json()['key']}"""
+                else:
+                    self.msg = 'Unable to generate emote stats at this time.'
 
         return self.msg
 
 
-class SongCommand(ModifiableCommand):
+class SongCommand(DatabaseCommand):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
 
@@ -548,52 +550,71 @@ class SongCommand(ModifiableCommand):
 
         if self.command == 'song_add':
             title = ' '.join(self.args[arg_offset:-1])
+            url = self.args[-1]
 
-            if self.room not in self.json_info:
-                self.json_info[self.room] = {}
-            self.json_info[self.room][title] = self.args[-1]
-            self.msg = f'Added {title} to song pool.'
+            song_exists = await self.db_man.execute("SELECT * FROM songs WHERE "
+                                                        f"room='{self.room}' AND url='{url}'")
+
+            if song_exists:
+                self.msg = f'This url already exists in the song pool for {self.room}.'
+            else:
+                # Sqlite escape
+                title = title.replace("'", "''")
+                await self.db_man.execute("INSERT INTO songs (room, title, url) "
+                                            f"VALUES ('{self.room}', '{title}', '{url}')")
+                self.msg = f'Added {title} to {self.room} song pool.'
 
         elif self.command == 'song_rm':
             title = ' '.join(self.args[arg_offset:])
             self.msg = f'{title} not found in song pool.'
 
-            if self.room in self.json_info:
-                for s in self.json_info[self.room]:
-                    if find_true_name(s) == find_true_name(title):
-                        del self.json_info[self.room][s]
-                        self.msg = f'Deleted {title} from song pool.'
-                        break
+            room_songs = await self.db_man.execute("SELECT title FROM songs "
+                                                    f"WHERE room='{self.room}'")
+
+            for s in list(sum(room_songs, ())):
+                if find_true_name(s) == find_true_name(title):
+                    escaped_s = s.replace("'", "''")
+                    await self.db_man.execute("DELETE FROM songs WHERE "
+                                                f"room='{self.room}' AND title='{escaped_s}'")
+
+            self.msg = f'Deleted all songs called {title} from song pool.'
 
         elif self.command == 'song_list':
             self.msg = f'No songs found for {self.room}.'
 
-            if self.room in self.json_info:
-                room_songs = self.json_info[self.room]
-                if len(room_songs) >= 1:
-                    header_text = monospace_table_row([('Song Title', 100),
-                                                       ('Link', 25)])
-                    header_text += '\n' + '-'*146
-                    box_text = ''
-                    for s in sorted(room_songs.keys()):
-                        box_text += monospace_table_row([(s, 100),
-                                                         (room_songs[s], 25)])
-                        box_text += '\n'
+            song_exists = await self.db_man.execute("SELECT title, url FROM songs "
+                                                    f"WHERE room='{self.room}'")
 
-                    r = requests.post(const.PASTIE_API, data=f'{header_text}\n{box_text}'.encode('utf-8'))
+            if song_exists:
+                room_songs = {}
+                for song in song_exists:
+                    room_songs[song[0]] = song[1]
 
-                    if r.status_code == 200:
-                        self.msg = f"""https://pastie.io/raw/{r.json()['key']}"""
+                header_text = monospace_table_row([('Song Title', 100),
+                                                   ('Link', 25)])
+                header_text += '\n' + '-'*146
+                box_text = ''
+                for s in sorted(room_songs.keys()):
+                    box_text += monospace_table_row([(s, 100),
+                                                     (room_songs[s], 25)])
+                    box_text += '\n'
+
+                r = requests.post(const.PASTIE_API, data=f'{header_text}\n{box_text}'.encode('utf-8'))
+
+                if r.status_code == 200:
+                    self.msg = f"""https://pastie.io/raw/{r.json()['key']}"""
+                else:
+                    self.msg = 'Unable to generate song list at this time.'
 
         elif self.command == 'randsong':
-            if self.room not in self.json_info or not self.json_info[self.room]:
+            song_exists = await self.db_man.execute("SELECT title, url FROM songs "
+                                                    f"WHERE room='{self.room}'")
+
+            if not song_exists:
                 self.msg = f'There are no songs for {self.room}!'
             else:
-                title = random.choice(list(self.json_info[self.room].keys()))
+                rand_song = random.choice(song_exists)
                 # Decode the URL because PS re-encodes it
-                song_url = self.json_info[self.room][title]
-                self.msg = f'[[{title}<{urllib.parse.unquote(song_url)}>]]'
+                self.msg = f'[[{rand_song[0]}<{urllib.parse.unquote(rand_song[1])}>]]'
 
-        json.dump(self.json_info, open(self.file, 'w'), indent=4)
-        print(self.msg is None)
         return self.msg
