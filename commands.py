@@ -309,7 +309,7 @@ class DatabaseCommand(Command):
         if self.is_pm:
             self.min_args += 1
 
-
+    @property
     def db_man(self):
         return self.bot.roomdata_man
 

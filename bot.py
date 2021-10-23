@@ -1061,7 +1061,7 @@ class Bot:
             if command[0] == 'emote_set':
                 cmd_kwargs['full_command'][0] = 'emote_add'
 
-            cmd_kwargs.usage_msg += '[ROOM] '
+            cmd_kwargs['usage_msg'] += '[ROOM] '
             cmd_kwargs['file'] = const.EMOTEFILE
             cmd_obj = EmoteCommand(**cmd_kwargs)
 
