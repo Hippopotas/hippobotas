@@ -453,7 +453,7 @@ class EmoteCommand(DatabaseCommand):
                 await self.pm_msg('Emotes must be only letters and/or numbers.')
                 return
 
-            emote_url = self.args[1 + arg_offset]
+            emote_url = self.args[arg_offset+1]
             if 'discordapp' in emote_url:
                 await self.pm_msg('Discord URLs do not work as emotes.')
                 return
@@ -461,11 +461,11 @@ class EmoteCommand(DatabaseCommand):
             emote_exists = await self.db_man.execute("SELECT * FROM emotes WHERE "
                                                         f"room='{self.room} AND name={emote}'")
             if emote_exists:
-                await self.pm_msg(f'{emote} already exists for {self.room}.')
-                return
-
-            await self.db_man.execute("INSERT INTO emotes (room, name, url) "
-                                        f"VALUES ('{self.room}', '{emote}', '{emote_url}')")
+                await self.db_man.execute(f"UPDATE emotes SET url='{emote_url}' "
+                                            f"WHERE room='{self.room}' AND name='{emote}'")
+            else:
+                await self.db_man.execute("INSERT INTO emotes (room, name, url) "
+                                            f"VALUES ('{self.room}', '{emote}', '{emote_url}')")
 
             self.msg = f'Set :{emote}: to show {emote_url}.'
         
@@ -473,7 +473,7 @@ class EmoteCommand(DatabaseCommand):
             emote = find_true_name(self.args[arg_offset])
 
             emote_exists = await self.db_man.execute("SELECT * FROM emotes WHERE "
-                                                        f"room='{self.room} AND name={emote}'")
+                                                        f"room='{self.room}' AND name='{emote}'")
 
             if not emote_exists:
                 await self.pm_msg(f'{self.room} does not have emote {emote}.')
@@ -481,6 +481,7 @@ class EmoteCommand(DatabaseCommand):
 
             await self.db_man.execute("DELETE FROM emotes WHERE "
                                         f"room='{self.room}' AND name='{emote}'")
+            self.msg = f'Removed {emote} from {self.room}.'
 
         elif self.command == 'emote_list':
             self.msg = 'No emotes found.'
