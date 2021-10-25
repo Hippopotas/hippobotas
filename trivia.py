@@ -442,7 +442,7 @@ class QuestionList:
         self.q_bases.append(base['id'])
 
         if anagrams:
-            answer = base['answers'][0]
+            answer = random.choice(base['answers'])
             scrambled = anagram_scramble(answer)
 
             await self.questions.put([f'/announce Unscramble this: **{scrambled}**', [answer]])
