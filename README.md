@@ -32,16 +32,16 @@ Displays a random picture of the current date (Pacific time) from an anime/manga
 
 ROOM (optional): Only used in PMs. Specifies the room to see the infobox in.
 
-### ]bl_add CATEGORY, ITEM
-ROOM STAFF ONLY! Adds an item to the CATEGORY banlist. Currently supported categories: anime, manga. Requires MAL ID number.
+### ]bl_add CATEGORY ITEM
+ROOM STAFF ONLY! Adds an item to the CATEGORY banlist. Currently supported categories: anime, manga, anotd. Requires MAL ID number for anime and manga; requires MAL URL for anotd.
 
-### ]bl_remove CATEGORY, ITEM
+### ]bl_remove CATEGORY ITEM
 ROOM STAFF ONLY! Removes an item from the CATEGORY banlist. See ]bl_add.
 
 ### ]bl_list CATEGORY
 ROOM STAFF ONLY! PMs you the banlist for a category.
 
-###]emote_add EMOTE URL
+### ]emote_add EMOTE URL
 ROOM OWNER ONLY! Sets a room's EMOTE to display the picture found at URL when called with :EMOTE: (case insensitive).
 Note that discord URLs don't work very well, and I would suggest reuploading somewhere else.
 
