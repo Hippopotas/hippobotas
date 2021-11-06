@@ -992,18 +992,24 @@ class Bot:
         msg = ''
         true_caller = find_true_name(caller)
 
+        if not command:
+            return
         if command[0] != ']' or command == ']':
             return
 
-        command = command[1:].split()
+        command = command[1:].split(' ')
 
         # Aliases
         if command[0] == 'rand_song':
             command[0] = 'randsong'
         if command[0] == 'commands':
             command[0] = 'help'
-        if not command:
-            return
+
+        is_anotd = False
+        if command[0] == 'anotd':
+            is_anotd = True
+            command[0] = 'mal'
+            command.append('-r')
 
         userinfo = await self.get_userinfo(true_caller)
 
@@ -1041,6 +1047,7 @@ class Bot:
 
             if command[0] in ['mal']:
                 cmd_kwargs['allowed_rooms'] = [const.ANIME_ROOM, const.PEARY_ROOM]
+                cmd_kwargs['is_anotd'] = is_anotd
 
             if command[0] in ['anime', 'manga']:
                 cmd_kwargs['min_args'] = 1
@@ -1053,7 +1060,6 @@ class Bot:
 
         elif command[0] in ['bl_add', 'bl_list', 'bl_rm']:
             cmd_kwargs['req_rank'] = '%'
-            cmd_kwargs['file'] = const.BANLISTFILE
             cmd_kwargs['allowed_rooms'] = [const.ANIME_ROOM]
             cmd_obj = BanlistCommand(**cmd_kwargs)
 

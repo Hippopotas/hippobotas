@@ -36,8 +36,7 @@ class DatabaseManager():
 
         try:
             with connection:
-                for r in connection.execute(query):
-                    rows.append(r)
+                rows = connection.execute(query).fetchall()
         except Exception as e:
             print(f'{query} failed on {self.db}: {e}')
         finally:

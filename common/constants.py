@@ -48,7 +48,6 @@ WPMFILE = os.path.join(BASE_DIR, 'data/wpm.txt')
 
 ROOMDATA_DB = os.path.join(BASE_DIR, 'data/roomdata.db')
 
-MALFILE = os.path.join(BASE_DIR, 'data/mal.txt')
 STEAMFILE = os.path.join(BASE_DIR, 'data/steam.txt')
 
 GACHAINFOFILE = os.path.join(BASE_DIR, 'data/gacha/gacha.json')

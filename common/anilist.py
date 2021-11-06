@@ -1,5 +1,5 @@
 import aiohttp
-import asyncio
+import datetime
 import json
 import random
 
@@ -107,7 +107,7 @@ async def anilist_rand_series(medium, anilist_man, genres=[], tags=[]):
                 idMal
                 title {
                     english
-                    romaji
+                    userPreferred
                 }
                 coverImage {
                     extraLarge
@@ -161,7 +161,7 @@ async def anilist_rand_series(medium, anilist_man, genres=[], tags=[]):
     img_uhtml = gen_uhtml_img_code(series_data['coverImage']['extraLarge'], dims=(65, 100))
     title = series_data['title']['english']
     if not title:
-        title = series_data['title']['romaji']
+        title = series_data['title']['userPreferred']
 
     parts = 'Episodes' if medium == 'anime' else 'Chapters'
     score = f'{series_data["averageScore"]}%' if series_data['averageScore'] else 'N/A'
@@ -180,11 +180,12 @@ async def anilist_rand_series(medium, anilist_man, genres=[], tags=[]):
     return f'hippo{medium}{series_data["idMal"]}, {uhtml}'
 
 
-async def check_mal_nsfw(medium, series, anilist_man, db_man):
-    bl = await db_man.execute(f"SELECT mal_id FROM mal_banlist WHERE medium = '{medium}'")
+async def check_mal_nsfw(medium, series, anilist_man, db_man, anotd=False):
+    bl = await db_man.execute("SELECT anotd_source FROM mal_banlist "
+                                f"WHERE medium='{medium}' AND mal_id={series}")
 
-    for mal_id in bl:
-        if series == mal_id[0]:
+    if bl:
+        if bl[0][0] == anotd or not anotd:
             return True
 
     query = '''
@@ -195,6 +196,7 @@ async def check_mal_nsfw(medium, series, anilist_man, db_man):
             }
             media (MEDIUM_PLACEHOLDER, idMal: $mal_id, isAdult: false) {
                 id
+                format
             }
         }
     }
@@ -203,15 +205,91 @@ async def check_mal_nsfw(medium, series, anilist_man, db_man):
     query_vars = {'mal_id': series}
 
     is_safe = None
+    resp = None
     async with anilist_man.lock():
         async with aiohttp.ClientSession() as session:
             # There will exist a series if isAdult is false and the series exists.
             # This does bl any series that have a MAL ID and are not on AL.
-            is_safe = await anilist_num_entries(query, query_vars, session)
+            async with session.post(const.ANILIST_API, json={'query': query, 'query_vars': query_vars}) as r:
+                resp = await r.json()
+
+                if r.status == 200:
+                    is_safe = resp['data']['Page']['pageInfo']['total']
 
     if not is_safe:
         await db_man.execute("INSERT INTO mal_banlist (medium, mal_id, manual) "
                             f"VALUES ('{medium}', {series}, 0)")
         return True
     else:
+        if anotd and resp['data']['Page']['media'][0]['format'] == 'MUSIC':
+            return True
         return False
+
+
+async def get_related_series(medium, series, anilist_man):
+    related_series = [(medium, series)]
+    query = '''
+    query ($mal_id: Int) {
+        Page (page: 1, perPage: 1) {
+            media (type: TYPE_PLACEHOLDER, idMal: $mal_id, isAdult: false) {
+                title {
+                    userPreferred
+                }
+                relations {
+                    edges {
+                        relationType
+                        node {
+                            idMal
+                            type
+                        }
+                    }
+                }
+            }
+        }
+    }
+    '''
+    title = ''
+
+    for s in related_series:
+        async with anilist_man.lock():
+            async with aiohttp.ClientSession() as session:
+                series_query = query.replace('TYPE_PLACEHOLDER', s[0].upper())
+                query_vars = {'mal_id': s[1]}
+                async with session.post(const.ANILIST_API, json={'query': series_query, 'variables': query_vars}) as r:
+                    resp = await r.json()
+
+                    if r.status != 200:
+                        continue
+
+                    if s == (medium, series):
+                        title = resp['data']['Page']['media'][0]['title']['userPreferred']
+
+                    for rs in resp['data']['Page']['media'][0]['relations']['edges']:
+                        rs_info = (rs['node']['type'].lower(), rs['node']['idMal'])
+                        if rs_info not in related_series and rs['relationType'] != 'CHARACTER':
+                            related_series.append(rs_info)
+
+    return (related_series, title)
+
+
+async def add_anotd_bl(medium, series, anilist_man, db_man):
+    related_series, title = await get_related_series(medium, series, anilist_man)
+
+    await db_man.execute("INSERT INTO anotd_banlist (medium, mal_id, name) "
+                            f"VALUES ('{medium}', {series}, '{title}')")
+
+    for s in related_series:
+        exists = await db_man.execute(f"SELECT * FROM mal_banlist WHERE medium='{s[0]}' AND mal_id={s[1]}")
+
+        if not exists:
+            await db_man.execute("INSERT INTO mal_banlist (medium, mal_id, anotd_source) "
+                                    f"VALUES ('{s[0]}', {s[1]}, 1)")
+
+
+async def rm_anotd_bl(medium, series, anilist_man, db_man):
+    related_series, _ = await get_related_series(medium, series, anilist_man)
+
+    for s in related_series:
+        await db_man.execute(f"DELETE FROM mal_banlist WHERE medium='{s[0]}' AND mal_id={s[1]} AND anotd_source=1")
+
+    await db_man.execute(f"DELETE FROM anotd_banlist WHERE medium='{medium}' AND mal_id={series}")

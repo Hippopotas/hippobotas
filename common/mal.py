@@ -2,12 +2,21 @@ import aiohttp
 import asyncio
 import datetime
 import random
+import re
 
 import common.constants as const
 
 from common.anilist import check_mal_nsfw
-from common.uhtml import UserInfo, ItemInfo
+from common.uhtml import UserInfo
 from common.utils import find_true_name, gen_uhtml_img_code
+
+
+async def mal_url_info(url):
+    m = re.search(r'myanimelist.net/(?P<medium>.*)/(?P<id>[0-9]*)/', url)
+    if m:
+        return (m.group('medium'), int(m.group('id')))
+    else:
+        return
 
 
 async def mal_of_ps(ps_user, db_man):
@@ -114,7 +123,7 @@ async def set_mal_user(ps_user, mal_user, db_man, mal_man):
 
 async def show_mal_user(ps_user, anilist_man, db_man, mal_man):
     mal_user = await mal_of_ps(ps_user, db_man)
-    retcode, user_data = await get_mal_user(mal_user, mal_man) if mal_user else None
+    retcode, user_data = await get_mal_user(mal_user, mal_man) if mal_user else (None, None)
 
     if retcode == 200:
         # Set image
@@ -171,7 +180,7 @@ async def show_mal_user(ps_user, anilist_man, db_man, mal_man):
         return f'Could not find the MAL account for {ps_user}. They may need to use ]mal_add first.'
 
 
-async def mal_user_rand_series(ps_user, media, anilist_man, db_man, mal_man):
+async def mal_user_rand_series(ps_user, media, anilist_man, db_man, mal_man, anotd=False):
     mal_user = await mal_of_ps(ps_user, db_man)
 
     if not mal_user:
@@ -193,9 +202,11 @@ async def mal_user_rand_series(ps_user, media, anilist_man, db_man, mal_man):
         while is_nsfw and all_series:
             index = random.randrange(len(all_series))
             # series = (medium, mal_id, title, last_updated)
-            series = all_series.pop(index)
+            temp_series = all_series.pop(index)
 
-            is_nsfw = await check_mal_nsfw(series[0], series[1], anilist_man, db_man)
+            is_nsfw = await check_mal_nsfw(temp_series[0], temp_series[1], anilist_man, db_man, anotd=anotd)
+            if not is_nsfw:
+                series = temp_series
 
         msg = f'No valid series found for {ps_user}'
         if series:

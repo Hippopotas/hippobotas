@@ -1,19 +1,16 @@
-import asyncio
 import functools
 import json
 import random
-import re
 import requests
-import sqlite3
 import urllib
 
 import common.constants as const
 
-from common.anilist import anilist_search, anilist_rand_series
+from common.anilist import add_anotd_bl, anilist_search, anilist_rand_series, rm_anotd_bl
 from common.arg_parsers import mal_arg_parser
-from common.mal import mal_user_rand_series, set_mal_user, show_mal_user
+from common.mal import mal_url_info, mal_user_rand_series, set_mal_user, show_mal_user
 from common.utils import find_true_name, gen_uhtml_img_code, curr_cal_date, \
-                         monospace_table_row, is_url, is_uhtml
+                         monospace_table_row, is_url, is_uhtml, trivia_leaderboard_msg
 from user import User
 
 
@@ -101,6 +98,9 @@ class SimpleCommand(Command):
 
         if self.command == 'mal_set':
             self.command = 'mal_add'
+
+        if self.command == 'mal_add':
+            self.usage_msg += 'MAL_USERNAME'
 
 
     async def evaluate(self):
@@ -259,7 +259,8 @@ class UhtmlCommand(Command):
                                                         media,
                                                         self.bot.anilist_man,
                                                         self.bot.roomdata_man,
-                                                        self.bot.mal_man)
+                                                        self.bot.mal_man,
+                                                        anotd=self.is_anotd)
 
                 if return_msg.startswith('rolled'):
                     self.msg = f'{self.caller} {return_msg}'
@@ -364,15 +365,19 @@ class TopicCommand(ModifiableCommand):
         return self.msg
 
 
-class BanlistCommand(ModifiableCommand):
-    def __init__(self, **kwargs):
-        full_cmd = kwargs['full_command']
-        if len(full_cmd) > 1:
-            self.banlist = full_cmd[1]
-            if full_cmd[1] == 'anime' or full_cmd[1] == 'manga':
-                full_cmd[1] = 'animeandmanga'
+class BanlistCommand(DatabaseCommand):
+    VALID_BANLISTS = {'anime': 'mal_id',
+                      'manga': 'mal_id',
+                      'anotd': 'mal_id'}
 
+    def __init__(self, **kwargs):
         super().__init__(**kwargs)
+
+        if self.args:
+            self.banlist = self.args[0]
+            if self.banlist in ['anime', 'manga', 'anotd']:
+                self.room = 'animeandmanga'
+            self.find_rank()
 
         if self.command == 'bl_add':
             self.min_args = 2
@@ -384,7 +389,7 @@ class BanlistCommand(ModifiableCommand):
             self.pm_only = True
         elif self.command == 'bl_list':
             self.min_args = 1
-            self.usage_msg += 'LIST_TO_SEE'
+            self.usage_msg += 'LIST_TO_VIEW'
 
 
     async def evaluate(self):
@@ -392,34 +397,87 @@ class BanlistCommand(ModifiableCommand):
             await self.pm_msg(self.msg)
             return ''
 
-        if self.banlist not in self.json_info:
-            await self.pm_msg(f'{self.banlist} is not a recognized banlist.')
+        if self.banlist not in self.VALID_BANLISTS:
+            await self.pm_msg(f'{self.banlist} is not a valid banlist.')
             return ''
+        else:
+            self.bl_key = self.VALID_BANLISTS[self.banlist]
+
+        if len(self.args) > 1:
+            if self.banlist in ['anime', 'manga']:
+                self.bl_value = self.args[1]
+            elif self.banlist == 'anotd':
+                try:
+                    self.bl_value2, self.bl_value = await mal_url_info(self.args[1])
+                except TypeError:
+                    await self.pm_msg(f'{self.args[1]} is not a valid MAL url.')
+                    return ''
+
+            self.where_clause = f"WHERE {self.bl_key}={self.bl_value}"
+            if self.banlist in ['anime', 'manga']:
+                self.where_clause += f" AND medium='{self.banlist}'"
+                self.check_query = (f"SELECT * FROM mal_banlist {self.where_clause}")
+            elif self.banlist == 'anotd':
+                self.where_clause += f" AND medium='{self.bl_value2}'"
+                self.check_query = (f"SELECT * FROM {self.banlist}_banlist {self.where_clause}")
 
         if self.command == 'bl_add':
-            if self.args[1] in self.json_info[self.banlist]:
-                await self.pm_msg(f'{self.args[1]} already in {self.banlist} banlist.')
+            entry_exists = await self.db_man.execute(self.check_query)
+            if entry_exists:
+                await self.pm_msg(f'{self.bl_value} already in {self.banlist} banlist.')
                 return ''
-            self.json_info[self.banlist].append(self.args[1])
+
+            if self.banlist in ['anime', 'manga']:
+                await self.db_man.execute(f"INSERT INTO mal_banlist (medium, mal_id, manual) "
+                                                f"VALUES ('{self.banlist}', {self.bl_value}, 1)")
+            elif self.banlist == 'anotd':
+                await add_anotd_bl(self.bl_value2, self.bl_value, self.bot.anilist_man, self.db_man)
+
             self.msg = f'{self.args[1]} added to {self.banlist} banlist.'
 
         elif self.command == 'bl_rm':
-            if self.args[1] not in self.json_info[self.banlist]:
-                await self.pm_msg(f'{self.args[1]} not in {self.banlist} banlist.')
+            entry_exists = await self.db_man.execute(self.check_query)
+            if not entry_exists:
+                await self.pm_msg(f'{self.bl_value} not in {self.banlist} banlist.')
                 return ''
-            self.json_info[self.banlist].remove(self.args[1])
+
+            if self.banlist in ['anime', 'manga']:
+                await self.db_man.execute(f"DELETE FROM mal_banlist WHERE medium='{self.banlist}' AND mal_id={self.bl_value} AND manual=1")
+            elif self.banlist == 'anotd':
+                await rm_anotd_bl(self.bl_value2, self.bl_value, self.bot.anilist_man, self.db_man)
+
             self.msg = f'{self.args[1]} removed from {self.banlist} banlist.'
 
         elif self.command == 'bl_list':
-            if self.is_pm:
-                self.msg = f'!code {self.banlist} banlist\n'
+            header_text = monospace_table_row([(self.banlist, 20)])
+            if self.banlist == 'anotd':
+                header_text = monospace_table_row([('Franchise/Title', 30)])            
+            header_text += '\n' + '-'*30
+
+            box_text = ''
+            if self.banlist in ['anime', 'manga']:
+                mal_ids = await self.db_man.execute("SELECT mal_id FROM mal_banlist "
+                                                        f"WHERE medium='{self.banlist}' AND manual=1")
+                for mid in list(sum(mal_ids, ())):
+                    box_text += monospace_table_row([(mid, 20)])
+                    box_text += '\n'
+            
+            elif self.banlist == 'anotd':
+                names = await self.db_man.execute("SELECT name FROM anotd_banlist")
+                for name in list(sum(names, ())):
+                    box_text += monospace_table_row([(name, 30)])
+                    box_text += '\n'
+
+            r = requests.post(const.PASTIE_API, data=f'{header_text}\n{box_text}')
+            if r.status_code == 200:
+                self.msg = f"""https://pastie.io/raw/{r.json()['key']}"""
             else:
+                self.msg = 'Cannot generate banlist info at this time.'
+
+            if not self.is_pm:
                 self.msg = (f'/addrankuhtml %, hippo-{self.banlist}bl, '
-                            f'<center>{self.banlist} banlist</center><br>')
+                            f'<center>{self.banlist} banlist: {self.msg}</center><br>')
 
-            self.msg += ', '.join(self.json_info[self.banlist])
-
-        json.dump(self.json_info, open(self.file, 'w'), indent=4)
         return self.msg
 
 
