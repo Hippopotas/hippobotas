@@ -997,7 +997,7 @@ class Bot:
         if command[0] != ']' or command == ']':
             return
 
-        command = command[1:].split(' ')
+        command = command[1:].split()
 
         # Aliases
         if command[0] == 'rand_song':
