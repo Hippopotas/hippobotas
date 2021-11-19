@@ -210,7 +210,7 @@ async def check_mal_nsfw(medium, series, anilist_man, db_man, anotd=False):
         async with aiohttp.ClientSession() as session:
             # There will exist a series if isAdult is false and the series exists.
             # This does bl any series that have a MAL ID and are not on AL.
-            async with session.post(const.ANILIST_API, json={'query': query, 'query_vars': query_vars}) as r:
+            async with session.post(const.ANILIST_API, json={'query': query, 'variables': query_vars}) as r:
                 resp = await r.json()
 
                 if r.status == 200:
