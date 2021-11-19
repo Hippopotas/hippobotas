@@ -142,7 +142,7 @@ class UhtmlCommand(Command):
         super().__init__(**kwargs)
 
         if self.is_pm:
-            if self.command == 'mal':
+            if self.command in ['mal', 'anime', 'manga']:
                 self.room = const.ANIME_ROOM
             else:
                 self.min_args += 1
