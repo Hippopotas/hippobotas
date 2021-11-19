@@ -14,7 +14,7 @@ import common.constants as const
 
 from common.anilist import anilist_num_entries
 from common.qbowl_db import QuestionTable
-from common.utils import find_true_name, gen_uhtml_img_code
+from common.utils import find_true_name, gen_uhtml_img_code, trivia_leaderboard_msg
 
 BASE_DIFF = 3
 VG_DIFF_SCALE = 300
@@ -110,7 +110,7 @@ class TriviaGame:
             self.scoreboard = pd.DataFrame(columns=['user', 'score'])
         self.reset_scoreboard()
 
-    async def autoskip(self, skip_time, putter):
+    async def autoskip(self, skip_time):
         answer = self.answers[0]
         while self.active and self.answers[0] == answer:
             await self.q_active.wait()
@@ -122,10 +122,10 @@ class TriviaGame:
                 break
 
             curr_time = int(time.time())
-            await putter(f'>{self.room}\n'
-                         f'|c:|{curr_time}|*hippobotas|{answer}')
+            await self.bot.incoming.put(f'>{self.room}\n'
+                                        f'|c:|{curr_time}|*hippobotas|{answer}')
 
-    async def quizbowl_question(self, question, skip_time, putter, i_putter):
+    async def quizbowl_question(self, question, skip_time):
         answer = self.answers[0]
         curr_output = []
         remaining = iter(question.split(' '))
@@ -141,10 +141,10 @@ class TriviaGame:
                     done = True
                     break
             curr_str = ' '.join(curr_output)
-            await putter(f'{self.room}|/adduhtml {UHTML_NAME}, {curr_str}')
+            await self.bot.outgoing.put(f'{self.room}|/adduhtml {UHTML_NAME}, {curr_str}')
 
             if done:
-                asyncio.create_task(self.autoskip(skip_time, i_putter))
+                asyncio.create_task(self.autoskip(skip_time))
                 return
             await asyncio.sleep(0.3)
 
@@ -159,11 +159,16 @@ class TriviaGame:
             timer.loc[timer['user'] == const.TIMER_USER, 'score'] = time.time()
             self.scoreboard = timer
 
-    async def start(self, n=10, diff=BASE_DIFF, categories=['all'],
-                    excludecats=None, by_rating=False,
-                    quizbowl=False, is_dex=False, anagrams=False):
+    async def run(self, n=10, diff=BASE_DIFF, categories=['all'],
+                  excludecats=None, by_rating=False, autoskip=20,
+                  quizbowl=False, is_dex=False, anagrams=False):
+        if self.active:
+            await self.bot.outgoing.put(self.room + '|There is already a running trivia!')
+            return
+
         self.active = True
         self.anagrams = anagrams
+        self.quizbowl = quizbowl
         self.reset_scoreboard()
 
         if diff > 10:
@@ -178,6 +183,27 @@ class TriviaGame:
         asyncio.create_task(self.questions.gen_list(n, self.bot, quizbowl=quizbowl, is_dex=is_dex, anagrams=anagrams),
                             name='tquestions-{}'.format(self.room))
 
+        for _ in range(n):
+            await asyncio.sleep(5)
+
+            curr_question = await self.questions.questions.get()
+            self.answers = curr_question[1]
+
+            if quizbowl:
+                asyncio.create_task(self.quizbowl_question(curr_question[0], autoskip))
+            else:
+                if autoskip:
+                    asyncio.create_task(self.autoskip(autoskip))
+
+                await self.bot.outgoing.put(f'{self.room}|{curr_question[0]}')
+
+            self.q_active.set()
+
+            await self.correct.wait()
+            self.correct.clear()
+
+        await self.end()
+
     def update_scores(self, user):
         user_pts = self.scoreboard[self.scoreboard['user'] == user]
 
@@ -187,14 +213,22 @@ class TriviaGame:
         else:
             self.scoreboard.loc[self.scoreboard['user'] == user, 'score'] += 1
 
-    async def end(self, putter):
+    async def end(self):
         self.scoreboard = self.scoreboard.sort_values('score', ascending=False)
         self.scoreboard.to_csv('trivia/{}.txt'.format(self.room), index=False)
-        self.active = False
+
+        self.questions.ended = True
+        while not self.questions.ending_acknowledged:
+            await asyncio.sleep(0.1)
         self.questions = QuestionList(self.room)
 
         endtext = 'This trivia game has ended. See below for results.'
-        await putter(self.room + '|' + '/adduhtml {}, {}'.format(UHTML_NAME, endtext))
+        await self.bot.outgoing.put(f'{self.room}|/adduhtml {UHTML_NAME}, {endtext}')
+        await asyncio.sleep(1)
+        t_title = 'Quizbowl Leaderboard' if self.quizbowl else 'Trivia Leaderboard'
+        await self.bot.outgoing.put(f"{self.room}|{trivia_leaderboard_msg(self.leaderboard(), t_title)}")
+
+        self.active = False
 
     async def skip(self, putter):
         await putter(self.room + '|' + '/adduhtml {}, <center>Question skipped.</center>'.format(UHTML_NAME))
@@ -229,12 +263,18 @@ class QuestionList:
         self.series_exist = True
         self.category_params = []
         self.max_rank = 0
+        self.ended = False
+        self.ending_acknowledged = True
 
     async def gen_list(self, n, bot, quizbowl=False, is_dex=False, anagrams=False):
         self.num_qs = n
         async with aiohttp.ClientSession() as session:
             if self.room == const.ANIME_ROOM:
                 for _ in range(n):
+                    if self.ended:
+                        self.ending_acknowledged = True
+                        break
+
                     if is_dex:
                         await self.gen_mangadex_question(session)
                     elif quizbowl:

@@ -1226,50 +1226,37 @@ class Bot:
             if (command[1] == 'start' and not trivia_status and
                     (User.compare_ranks(caller[0], '+') or true_caller == const.OWNER)):
 
-                args = None
-                if len(command) > 2:
-                    args = trivia_arg_parser(' '.join(command[2:]))
+                args = trivia_arg_parser(' '.join(command[2:])) if len(command) > 2 else None
+                if not args:
+                    msg = 'Invalid parameters. Trivia not started.'
 
-                if args:
+                else:
                     if args.quizbowl and room == const.LEAGUE_ROOM:
                         args.quizbowl = None
                     if not args.quizbowl and room == const.SCHOL_ROOM:
                         args.quizbowl = True
+                    anagrams = False
                     if command[0] == 'anagrams':
                         if args.quizbowl:
                             args.quizbowl = None
-                        args.categories.append('anagrams')
                         if args.autoskip == 15:
                             args.autoskip = 45
-                if not args:
-                    msg = 'Invalid parameters. Trivia not started.'
-                elif args.quizbowl:
-                    msg = 'Starting a round of quizbowl with {} questions. ' \
-                          'Type your answers to guess!'.format(args.len)
-                    asyncio.create_task(self.roomlist[room].quizbowl_game(args.len,
-                                                                          args.diff,
-                                                                          args.categories,
-                                                                          args.excludecats,
-                                                                          args.byrating,
-                                                                          args.autoskip),
-                                        name='trivia-{}'.format(room))
-                else:
-                    timer_msg = f', with a {args.autoskip} second timer' if args.autoskip else ''
+                        anagrams = True
+                    is_dex = True if 'mangadex' in args.categories else False
 
-                    msg = f'Starting a trivia round of {args.len} questions{timer_msg}. Type your answers to guess!'
-                    asyncio.create_task(self.roomlist[room].trivia_game(args.len,
-                                                                        args.diff,
-                                                                        args.categories,
-                                                                        args.excludecats,
-                                                                        args.byrating,
-                                                                        args.autoskip),
-                                        name='trivia-{}'.format(room))
+                    timer_msg = f', with a {args.autoskip} second timer' if args.autoskip else ''
+                    msg = (f'Starting a trivia with {args.len} questions{timer_msg}. '
+                            'Type your answers to guess!')
+
+                    asyncio.create_task(self.roomlist[room].trivia.run(
+                        n=args.len, diff=args.diff, categories=args.categories,
+                        excludecats=args.excludecats, by_rating=args.byrating,
+                        autoskip=args.autoskip, quizbowl=args.quizbowl,
+                        is_dex=is_dex, anagrams=anagrams), name=f'trivia-{room}')
+
             elif (command[1] == 'stop' or command[1] =='end') and User.compare_ranks(caller[0], '+'):
                 if trivia_status:
-                    for task in asyncio.all_tasks():
-                        if task.get_name() == 'trivia-{}'.format(room):
-                            task.cancel()
-                            break
+                    await self.roomlist[room].trivia.end()
                     return
                 else:
                     msg = 'No trivia game in progress.'
