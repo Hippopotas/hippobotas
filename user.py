@@ -10,7 +10,7 @@ from common.utils import find_true_name
 
 
 class User:
-    Groups = {'‽': -1, '!': -1, ' ': 0, '^': 0.1, '+': 1, '*': 1.5, '★': 2, '%': 2, '@': 3, '&': 4, '#': 5, '＋': 6, '~': 6}
+    Groups = {'‽': -1, '!': -1, ' ': 0, '^': 1.1, '+': 1, '*': 1.5, '★': 2, '%': 2, '@': 3, '&': 4, '#': 5, '＋': 6, '~': 6}
 
     @staticmethod
     def compare_ranks(rank1, rank2):

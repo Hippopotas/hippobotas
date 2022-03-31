@@ -10,6 +10,7 @@ SCHOL_ROOM = 'scholastic'
 SPORTS_ROOM = 'sports'
 TCG_ROOM = 'tcgtabletop'
 VG_ROOM = 'videogames'
+VTUBE_ROOM = 'vtubers'
 PEARY_ROOM = 'bikinibottom'
 
 MAX_FRIENDS = 100

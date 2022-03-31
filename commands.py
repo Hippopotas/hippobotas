@@ -161,7 +161,6 @@ class UhtmlCommand(Command):
             self.mal_args = mal_arg_parser(' '.join(self.args), self.true_caller)
 
             if self.mal_args.roll is not None:
-                self.req_rank = ' '
                 self.pm_response = self.is_pm
 
 

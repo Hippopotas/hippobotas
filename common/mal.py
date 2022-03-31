@@ -12,7 +12,7 @@ from common.utils import find_true_name, gen_uhtml_img_code
 
 
 async def mal_url_info(url):
-    m = re.search(r'myanimelist.net/(?P<medium>.*)/(?P<id>[0-9]*)/', url)
+    m = re.search(r'myanimelist.net/(?P<medium>.*)/(?P<id>[0-9]*)', url)
     if m:
         return (m.group('medium'), int(m.group('id')))
     else:

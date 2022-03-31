@@ -12,7 +12,7 @@ from peewee import fn
 
 import common.constants as const
 
-from common.anilist import anilist_num_entries
+from common.anilist import anilist_num_entries, check_mal_nsfw
 from common.qbowl_db import QuestionTable
 from common.utils import find_true_name, gen_uhtml_img_code, trivia_leaderboard_msg
 
@@ -102,7 +102,7 @@ class TriviaGame:
 
         self.bot = bot
         self.room = room
-        self.questions = QuestionList(self.room)
+        self.questions = QuestionList(self.room, self.bot)
 
         try:
             self.scoreboard = pd.read_csv('trivia/{}.txt'.format(self.room))
@@ -220,7 +220,7 @@ class TriviaGame:
         self.questions.ended = True
         while not self.questions.ending_acknowledged:
             await asyncio.sleep(0.1)
-        self.questions = QuestionList(self.room)
+        self.questions = QuestionList(self.room, self.bot)
 
         endtext = 'This trivia game has ended. See below for results.'
         await self.bot.outgoing.put(f'{self.room}|/adduhtml {UHTML_NAME}, {endtext}')
@@ -251,12 +251,13 @@ class TriviaGame:
 
 class QuestionList:
 
-    def __init__(self, room):
+    def __init__(self, room, bot):
         self.diff = BASE_DIFF
         self.categories = ['all']
         self.excludecats = None
         self.by_rating = False
         self.room = room
+        self.bot = bot
         self.q_bases = []
         self.num_qs = 0
         self.questions = asyncio.Queue()
@@ -331,6 +332,7 @@ class QuestionList:
                 media (CATEGORIES_PLACEHOLDER minimumTagRank: 50, isAdult: false, sort: SORT_PLACEHOLDER) {
                     id
                     idMal
+                    type
                     description
                     title {
                         english
@@ -442,36 +444,46 @@ class QuestionList:
 
         while rank < 1 or rank > self.max_rank:
             rank = int(random.gauss(self.max_rank // ((diff_scale) ** (10 - self.diff)),
-                                    (std_dev_scale * self.diff)))
+                                    (std_dev_scale * self.diff / 2)))
 
-        series_data = {}
-
+        all_series = []
         roll_query_vars = {
             'page': rank,
             'perpage': 1
         }
-        async with anilist_man.lock():
-            async with session.post(const.ANILIST_API, json={'query': query, 'variables': roll_query_vars}) as r:
-                resp = await r.json()
+        # Anilist pageInfo is flaky, resulting in the possibility of overshooting the upper bound at higher diffs
+        while not all_series:
+            async with anilist_man.lock():
+                async with session.post(const.ANILIST_API, json={'query': query, 'variables': roll_query_vars}) as r:
+                    resp = await r.json()
 
-                if r.status != 200:
-                    for task in asyncio.all_tasks():
-                        if task.get_name() == 'trivia-{}'.format(self.room):
-                            task.cancel()
-                            return
+                    if r.status != 200:
+                        for task in asyncio.all_tasks():
+                            if task.get_name() == 'trivia-{}'.format(self.room):
+                                task.cancel()
+                                return
 
-                series_data = resp['data']['Page']['media'][0]
+                    all_series = resp['data']['Page']['media']
+
+            roll_query_vars['page'] = math.floor(roll_query_vars['page'] * 0.8)
+
+        series_data = all_series[0]
 
         aliases = []
         for title in series_data['title'].values():
             if title:
                 aliases.append(title)
 
-        return {'img_url': series_data['coverImage']['large'],
+        slug = {'img_url': series_data['coverImage']['large'],
                 'description': series_data['description'],
                 'answers': aliases,
                 'rank': rank,
                 'id': series_data['id']}
+
+        is_nsfw = await check_mal_nsfw(series_data['type'].lower(), series_data['idMal'], anilist_man, self.bot.roomdata_man)
+        if is_nsfw:
+            slug = slug.fromkeys(slug, None)
+        return slug
 
     async def gen_am_question(self, session, anilist_man, anagrams=False):
         base = await self.gen_am_base(session, anilist_man)

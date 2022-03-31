@@ -37,7 +37,7 @@ JOINLIST = [const.ANIME_ROOM,
             const.TCG_ROOM,
             const.VG_ROOM,
             const.PEARY_ROOM,
-            const.GACHA_ROOM,
+            const.VTUBE_ROOM,
             const.SCHOL_ROOM,
             const.SPORTS_ROOM]
 WS = None
@@ -123,9 +123,11 @@ class Bot:
         self.mal_rooms = [const.ANIME_ROOM, const.PEARY_ROOM]
         self.steam_rooms = [const.VG_ROOM, const.PEARY_ROOM]
 
-        self.get_igdb_token()
+        self.refresh_igdb_token()
 
 
+    def __del__(self):
+        print('Deleted previous bot instance.')
 
 
     def reconnect(self, restart=True):
@@ -144,7 +146,7 @@ class Bot:
         await discord_bot.start(self.discord_token)
 
 
-    def get_igdb_token(self):
+    def refresh_igdb_token(self):
         '''
         Gets IGDB access token.
 
@@ -156,7 +158,7 @@ class Bot:
 
         r = requests.post('https://id.twitch.tv/oauth2/token', data=payload)
 
-        igdb_info = json.loads(r.text)
+        igdb_info = r.json()
         self.igdb_token = igdb_info['access_token']
         self.igdb_token_expire = time.time() + int(igdb_info['expires_in'])
 
@@ -169,7 +171,7 @@ class Bot:
         Args:
         '''
         if time.time() > self.igdb_token_expire:
-            self.get_igdb_token()
+            self.refresh_igdb_token()
 
 
     async def start_repeats(self):
@@ -251,6 +253,8 @@ class Bot:
             self.users[true_user] = {'group': None,
                                      'rooms': None,
                                      'event': asyncio.Event()}
+        else:
+            print(self.users[true_user])
 
         if not self.users[true_user]['group']:
             await self.outgoing.put(f'|/cmd userdetails {true_user}')
@@ -269,7 +273,7 @@ class Bot:
         '''
         while True:
             now = datetime.datetime.now()
-            next_hour = (now + datetime.timedelta(hours=6)).replace(second=0, minute=1)
+            next_hour = (now + datetime.timedelta(hours=3)).replace(second=0, minute=1)
             sleep_len = (next_hour - now).seconds
 
             await asyncio.sleep(sleep_len)
@@ -819,7 +823,7 @@ class Bot:
 
         if not birthday_chars:
             if not automatic:
-                await self.outgoing.put(f'{ctx}|No known birthdays today! Submit birthdays here: https://forms.gle/qfKSeyNtpueTBACn7')
+                await self.outgoing.put(f'{ctx}|No known birthdays today! Submit birthdays here: https://forms.gle/j5T3CkqSovE4JJ6A7')
             return
 
         char_uhtml = self.birthday_chars_to_uhtml(birthday_chars)
@@ -1126,6 +1130,8 @@ class Bot:
 
             steam_list = pd.read_csv(const.STEAMFILE)
             existing_user = steam_list[steam_list['user'] == args.username]
+            if not (User.compare_ranks(caller[0], '+')):
+                ctx = 'pm'
             if existing_user.empty:
                 msg = 'This user does not have a Steam set. Please use ]addsteam to set a valid account. Make sure to use the URL ID and not the Steam username.'
             else:
@@ -1224,7 +1230,7 @@ class Bot:
             trivia_status = trivia_game.active
 
             if (command[1] == 'start' and not trivia_status and
-                    (User.compare_ranks(caller[0], '+') or true_caller == const.OWNER)):
+                    (User.compare_ranks(caller[0], '%') or true_caller == const.OWNER)):
 
                 args = trivia_arg_parser(' '.join(command[2:])) if len(command) > 2 else None
                 if not args:
@@ -1509,7 +1515,9 @@ class DiscordReconnecter(commands.Cog):
         self.bot.reconnect()
 
 
+BOT = None
 def start_bot(restart=True, timer=0):
+    global BOT
     loop = asyncio.get_event_loop()
 
     if restart:
@@ -1520,16 +1528,17 @@ def start_bot(restart=True, timer=0):
     time.sleep(timer)
 
     loop.set_debug(True)
-    bot = Bot()
+    if BOT:
+        BOT = None
+    BOT = Bot()
 
     asyncio.set_event_loop(loop)
-    loop.create_task(bot.listener(PS_SOCKET))
-    loop.create_task(bot.interpreter())
-    loop.create_task(bot.sender())
-    loop.create_task(bot.start_repeats())
-    loop.create_task(bot.monitor_discord())
+    loop.create_task(BOT.listener(PS_SOCKET))
+    loop.create_task(BOT.interpreter())
+    loop.create_task(BOT.sender())
+    loop.create_task(BOT.start_repeats())
+    loop.create_task(BOT.monitor_discord())
     loop.run_forever()
-
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)

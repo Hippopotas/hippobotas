@@ -181,6 +181,7 @@ async def anilist_rand_series(medium, anilist_man, genres=[], tags=[]):
 
 
 async def check_mal_nsfw(medium, series, anilist_man, db_man, anotd=False):
+    """ Returns True if series is in banlist """
     bl = await db_man.execute("SELECT anotd_source FROM mal_banlist "
                                 f"WHERE medium='{medium}' AND mal_id={series}")
 
@@ -275,8 +276,10 @@ async def get_related_series(medium, series, anilist_man):
 async def add_anotd_bl(medium, series, anilist_man, db_man):
     related_series, title = await get_related_series(medium, series, anilist_man)
 
-    await db_man.execute("INSERT INTO anotd_banlist (medium, mal_id, name) "
-                            f"VALUES ('{medium}', {series}, '{title}')")
+    expiration = str(datetime.datetime.now() + datetime.timedelta(days=365))
+
+    await db_man.execute("INSERT INTO anotd_banlist (medium, mal_id, name, expiration) "
+                            f"VALUES ('{medium}', {series}, '{title}', '{expiration}')")
 
     for s in related_series:
         exists = await db_man.execute(f"SELECT * FROM mal_banlist WHERE medium='{s[0]}' AND mal_id={s[1]}")

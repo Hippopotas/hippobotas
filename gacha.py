@@ -220,14 +220,14 @@ class GachaManager:
         unit_id_rows = None
         if ids:
             unit_id_rows = (pb.select(pb.gacha, pb.unit_id)
-                            .where(~pb.favorited & (pb.id << ids))
-                            .group_by(pb.gacha, pb.unit_id)
-                            .having(peewee.fn.COUNT(pb.unit_id) >= MERGE_COUNT))
+                              .where(~pb.favorited & (pb.id << ids))
+                              .group_by(pb.gacha, pb.unit_id)
+                              .having(peewee.fn.COUNT(pb.unit_id) >= MERGE_COUNT))
         else:
             unit_id_rows = (pb.select(pb.gacha, pb.unit_id)
-                            .where(~pb.favorited)
-                            .group_by(pb.gacha, pb.unit_id)
-                            .having(peewee.fn.COUNT(pb.unit_id) >= MERGE_COUNT))
+                              .where(~pb.favorited)
+                              .group_by(pb.gacha, pb.unit_id)
+                              .having(peewee.fn.COUNT(pb.unit_id) >= MERGE_COUNT))
 
         valid_units = []
         for uir in unit_id_rows:
@@ -331,7 +331,7 @@ class Gacha:
 
         unit_info = None
         for unit in name_search:
-            if str(unit.unit_id).endswith('4'):
+            if not unit.evo_to:
                 if unit_info:
                     if len(unit_info.name) > len(unit.name):
                         unit_info = unit
