@@ -12,6 +12,7 @@ TCG_ROOM = 'tcgtabletop'
 VG_ROOM = 'videogames'
 VTUBE_ROOM = 'vtubers'
 PEARY_ROOM = 'bikinibottom'
+ARTS_ROOM = 'artsculture'
 
 MAX_FRIENDS = 100
 
@@ -22,8 +23,8 @@ UHTML_COMMANDS = ['plebs', 'calendar', 'birthday',
 
 TIMER_USER = 'T*'
 
-JIKAN_API = 'https://api.jikan.moe/v3/'
-JIKAN_SEARCH_API = 'https://api.jikan.moe/v3/search/'
+JIKAN_API = 'https://api.jikan.moe/v4/'
+MAL_API = 'https://api.myanimelist.net/v2/'
 DEX_API = 'https://api.mangadex.org/'
 ANILIST_API = 'https://graphql.anilist.co/'
 DDRAGON_API = 'http://ddragon.leagueoflegends.com/cdn/11.14.1/data/en_US/'

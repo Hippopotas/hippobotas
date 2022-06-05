@@ -180,53 +180,6 @@ async def anilist_rand_series(medium, anilist_man, genres=[], tags=[]):
     return f'hippo{medium}{series_data["idMal"]}, {uhtml}'
 
 
-async def check_mal_nsfw(medium, series, anilist_man, db_man, anotd=False):
-    """ Returns True if series is in banlist """
-    bl = await db_man.execute("SELECT anotd_source FROM mal_banlist "
-                                f"WHERE medium='{medium}' AND mal_id={series}")
-
-    if bl:
-        if bl[0][0] == anotd or not anotd:
-            return True
-
-    query = '''
-    query ($mal_id: Int) {
-        Page (page: 1, perPage: 1) {
-            pageInfo {
-                total
-            }
-            media (MEDIUM_PLACEHOLDER, idMal: $mal_id, isAdult: false) {
-                id
-                format
-            }
-        }
-    }
-    '''
-    query = query.replace('MEDIUM_PLACEHOLDER', f'type: {medium.upper()}')
-    query_vars = {'mal_id': series}
-
-    is_safe = None
-    resp = None
-    async with anilist_man.lock():
-        async with aiohttp.ClientSession() as session:
-            # There will exist a series if isAdult is false and the series exists.
-            # This does bl any series that have a MAL ID and are not on AL.
-            async with session.post(const.ANILIST_API, json={'query': query, 'variables': query_vars}) as r:
-                resp = await r.json()
-
-                if r.status == 200:
-                    is_safe = resp['data']['Page']['pageInfo']['total']
-
-    if not is_safe:
-        await db_man.execute("INSERT INTO mal_banlist (medium, mal_id, manual) "
-                            f"VALUES ('{medium}', {series}, 0)")
-        return True
-    else:
-        if anotd and resp['data']['Page']['media'][0]['format'] == 'MUSIC':
-            return True
-        return False
-
-
 async def get_related_series(medium, series, anilist_man):
     related_series = [(medium, series)]
     query = '''

@@ -8,7 +8,7 @@ import common.constants as const
 
 from common.anilist import add_anotd_bl, anilist_search, anilist_rand_series, rm_anotd_bl
 from common.arg_parsers import mal_arg_parser
-from common.mal import mal_url_info, mal_user_rand_series, set_mal_user, show_mal_user
+from common.mal import mal_url_info
 from common.utils import find_true_name, gen_uhtml_img_code, curr_cal_date, \
                          monospace_table_row, is_url, is_uhtml, trivia_leaderboard_msg
 from user import User
@@ -127,9 +127,7 @@ class SimpleCommand(Command):
 
         elif self.command == 'mal_add':
             mal_user = ''.join(self.args)
-            self.msg += await set_mal_user(self.true_caller, mal_user,
-                                           self.bot.roomdata_man,
-                                           self.bot.mal_man)
+            self.msg += await self.bot.mal_man.set_user(self.true_caller, mal_user, self.bot.jikan_man)
 
         return self.msg
 
@@ -254,12 +252,7 @@ class UhtmlCommand(Command):
                 if 'manga' not in self.mal_args.roll:
                     media.remove('manga')
 
-                return_msg = await mal_user_rand_series(true_mal_user,
-                                                        media,
-                                                        self.bot.anilist_man,
-                                                        self.bot.roomdata_man,
-                                                        self.bot.mal_man,
-                                                        anotd=self.is_anotd)
+                return_msg = await self.bot.mal_man.user_rand_series(true_mal_user, media, anotd=self.is_anotd)
 
                 if return_msg.startswith('rolled'):
                     self.msg = f'{self.caller} {return_msg}'
@@ -267,10 +260,7 @@ class UhtmlCommand(Command):
                     self.msg = return_msg
 
             else:
-                return_msg = await show_mal_user(true_mal_user,
-                                                 self.bot.anilist_man,
-                                                 self.bot.roomdata_man,
-                                                 self.bot.mal_man)
+                return_msg = await self.bot.mal_man.show_user(true_mal_user, self.bot.jikan_man)
 
                 if is_uhtml(return_msg):
                     self.msg += f'hippo-{true_mal_user}mal, {return_msg}'
@@ -407,7 +397,7 @@ class BanlistCommand(DatabaseCommand):
                 self.bl_value = self.args[1]
             elif self.banlist == 'anotd':
                 try:
-                    self.bl_value2, self.bl_value = await mal_url_info(self.args[1])
+                    self.bl_value2, self.bl_value = mal_url_info(self.args[1])
                 except TypeError:
                     await self.pm_msg(f'{self.args[1]} is not a valid MAL url.')
                     return ''
@@ -464,7 +454,8 @@ class BanlistCommand(DatabaseCommand):
             elif self.banlist == 'anotd':
                 names = await self.db_man.execute("SELECT name FROM anotd_banlist")
                 for name in list(sum(names, ())):
-                    box_text += monospace_table_row([(name, 30)])
+                    fixed_name = name.encode('ascii', 'ignore').decode()
+                    box_text += monospace_table_row([(fixed_name, 30)])
                     box_text += '\n'
 
             r = requests.post(const.PASTIE_API, data=f'{header_text}\n{box_text}')

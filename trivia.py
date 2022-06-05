@@ -12,7 +12,7 @@ from peewee import fn
 
 import common.constants as const
 
-from common.anilist import anilist_num_entries, check_mal_nsfw
+from common.anilist import anilist_num_entries
 from common.qbowl_db import QuestionTable
 from common.utils import find_true_name, gen_uhtml_img_code, trivia_leaderboard_msg
 
@@ -480,7 +480,7 @@ class QuestionList:
                 'rank': rank,
                 'id': series_data['id']}
 
-        is_nsfw = await check_mal_nsfw(series_data['type'].lower(), series_data['idMal'], anilist_man, self.bot.roomdata_man)
+        is_nsfw = await self.bot.mal_man.is_nsfw(series_data['type'].lower(), series_data['idMal'])
         if is_nsfw:
             slug = slug.fromkeys(slug, None)
         return slug
