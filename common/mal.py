@@ -56,7 +56,9 @@ class MalManager(ApiManager):
 
     async def is_nsfw(self, medium, series_id):
         series_data = await self.api_request(f'{const.MAL_API}{medium}/{series_id}', params={'fields': 'nsfw'})
-        if series_data['nsfw'] == 'white':
+        if 'nsfw' not in series_data:
+            return True
+        elif series_data['nsfw'] == 'white':
             return False
         else:
             return True
@@ -85,7 +87,7 @@ class MalManager(ApiManager):
         mal_user = await self.mal_of_ps(ps_user)
         full_list = []
         for status in ('reading', 'completed'):
-            curr_url = f'{const.MAL_API}users/{mal_user}/animelist?limit=1000&status={status}'
+            curr_url = f'{const.MAL_API}users/{mal_user}/mangalist?limit=1000&status={status}'
             while curr_url:
                 series_data = await self.api_request(curr_url)
                 for series in series_data['data']:

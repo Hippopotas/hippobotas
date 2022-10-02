@@ -27,3 +27,5 @@ class User:
         self.name = username
         self.true_name = find_true_name(self.name)
         self.rank = rank
+        if self.true_name == 'hippopotas':
+            self.rank = '~'

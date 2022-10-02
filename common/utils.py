@@ -25,7 +25,7 @@ def img_dims_from_uri(uri):
     # Returns width, height
     dims = (0, 0)
     try:
-        file = BytesIO(urllib.request.urlopen(uri).read())
+        file = BytesIO(urllib.request.urlopen(uri, timeout=10).read())
         im = Image.open(file)
         dims = im.size
     except Exception as e:

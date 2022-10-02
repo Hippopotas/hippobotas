@@ -90,7 +90,7 @@ async def steam_game_info(game_id):
             game_info = temp_json['data']
 
             # NSFW games
-            if 1 in game_info['content_descriptors']['ids']:
+            if 1 in game_info['content_descriptors']['ids'] and game_info['steam_appid'] != 1599340:
                 return None
 
     return game_info

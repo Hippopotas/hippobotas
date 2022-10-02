@@ -1,3 +1,4 @@
+import dateutil
 import functools
 import json
 import random
@@ -74,6 +75,8 @@ class Command():
 
 
     def find_rank(self):
+        if self.true_caller == 'hippopotas':
+            self.caller_rank = '~'
         self.caller_rank = self.caller_info['group']
         if self.room:
             for r in self.caller_info['rooms']:
@@ -579,6 +582,7 @@ class SongCommand(DatabaseCommand):
             self.min_args += 1
             self.usage_msg += 'TITLE'
 
+
     def check_eligible(self):
         eligibility = super().check_eligible()
 
@@ -588,6 +592,7 @@ class SongCommand(DatabaseCommand):
                 self.msg = self.usage_with_error('Please provide a valid URL.')
 
         return eligibility
+
 
     async def evaluate(self):
         if self.check_eligible():
@@ -664,5 +669,77 @@ class SongCommand(DatabaseCommand):
                 rand_song = random.choice(song_exists)
                 # Decode the URL because PS re-encodes it
                 self.msg = f'[[{rand_song[0]}<{urllib.parse.unquote(rand_song[1])}>]]'
+
+        return self.msg
+
+
+class BirthdayCommand(DatabaseCommand):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+
+        self.usage_msg += '[ROOM] '
+
+        if self.command == 'birthday_add':
+            self.min_args += 2
+            self.usage_msg += 'NAME LINK IMAGE DATE'
+        elif self.command == 'birthday_rm':
+            self.min_args += 1
+            self.usage_msg += 'NAME'
+
+
+    def check_eligible(self):
+        eligibility = super().check_eligible()
+
+        if not eligibility and self.command == 'birthday_add':
+            if not is_url(self.args[-2]) or not is_url(self.args[-3]):
+                eligibility = 101
+                self.msg = self.usage_with_error('Please provide a valid URL.')
+
+            if not dateutil.parser.parse(self.args[-1]):
+                eligibility = 101
+                self.msg = self.usage_with_error('Please provide a recognizable day (with no space).')
+
+        return eligibility
+
+
+    async def evaluate(self):
+        if self.check_eligible():
+            await self.pm_msg(self.msg)
+            return ''
+
+        arg_offset = 1 if self.is_pm else 0
+
+        if self.command == 'birthday_add':
+            name = ' '.join(self.args[arg_offset:-3])
+            link = self.args[-3]
+            image = self.args[-2]
+            day = dateutil.parser.parse(self.args[-1]).strftime('%B %#d')
+
+            char_exists = await self.db_man.execute("SELECT * FROM birthdays WHERE "
+                                                        f"room='{self.room}' AND name='{name}' AND day='{day}'")
+
+            if char_exists:
+                self.msg = f'This character is already in the birthdays for {self.room}.'
+            else:
+                # Sqlite escape
+                name = name.replace("'", "''")
+                await self.db_man.execute("INSERT INTO birthdays (name, room, day, image, link) "
+                                            f"VALUES ('{name}', '{self.room}', '{day}', '{image}', '{link}')")
+                self.msg = f'Added {name} to {self.room} birthdays.'
+
+        elif self.command == 'birthday_rm':
+            name = ' '.join(self.args[arg_offset:])
+            self.msg = f'{name} not found in birthdays.'
+
+            room_bdays = await self.db_man.execute("SELECT name FROM birthdays "
+                                                    f"WHERE room='{self.room}'")
+
+            for n in list(sum(room_bdays, ())):
+                if find_true_name(n) == find_true_name(name):
+                    escaped_n = n.replace("'", "''")
+                    await self.db_man.execute("DELETE FROM birthdays WHERE "
+                                                f"room='{self.room}' AND name='{escaped_n}'")
+
+            self.msg = f'Deleted all birthdays of {name} in {self.room}.'
 
         return self.msg

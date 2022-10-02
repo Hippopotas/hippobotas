@@ -24,6 +24,7 @@ from gacha import GachaManager
 from commands import *
 from common.arg_parsers import trivia_arg_parser
 from common.connections import ApiManager, DatabaseManager
+from common.mal import MalManager
 from common.steam import set_steam_user, show_steam_user, steam_user_rand_series
 from common.tcg import display_mtg_card, display_ptcg_card, display_ygo_card
 from common.utils import find_true_name, gen_uhtml_img_code, trivia_leaderboard_msg
@@ -39,7 +40,8 @@ JOINLIST = [const.ANIME_ROOM,
             const.PEARY_ROOM,
             const.VTUBE_ROOM,
             const.SCHOL_ROOM,
-            const.SPORTS_ROOM]
+            const.SPORTS_ROOM,
+            const.ARTS_ROOM]
 WS = None
 
 
@@ -67,7 +69,7 @@ def steam_arg_parser(s, caller):
     Args:
         s (str): input str
         caller (str): username of the person who invoked the command
-    
+
     Returns:
         args (Namespace): contains the arguments as methods
     '''
@@ -94,7 +96,6 @@ class Bot:
         self.username = os.getenv('PS_USERNAME')
         self.password = os.getenv('PS_PASSWORD')
         self.discord_token = os.getenv('DISCORD_TOKEN')
-        self.birthdays = json.load(open(const.BIRTHDAYFILE))
         self.sucklist = pd.read_csv(const.SUCKFILE)
         self.friendslist = json.load(open(const.FRIENDFILE))
 
@@ -114,11 +115,13 @@ class Bot:
                 pass
             self.num_typing_sentences = i+1
 
-        self.anilist_man = ApiManager(0.7)
-        self.mal_man = ApiManager(2.1)
 
         self.roomdata_man = DatabaseManager(const.ROOMDATA_DB)
         self.gachaman = GachaManager()
+
+        self.anilist_man = ApiManager(0.7)
+        self.jikan_man = ApiManager(1)
+        self.mal_man = MalManager(self.roomdata_man)
 
         self.mal_rooms = [const.ANIME_ROOM, const.PEARY_ROOM]
         self.steam_rooms = [const.VG_ROOM, const.PEARY_ROOM]
@@ -199,27 +202,24 @@ class Bot:
     async def birthday_repeater(self):
         '''
         Repeating process for birthday display.
-        
+
         Args:
         '''
-        self.birthdays = json.load(open(const.BIRTHDAYFILE))
+        next_time = await self.roomdata_man.execute("SELECT 'day' FROM birthdays WHERE name='next_time' AND room='animeandmanga'")[0][0]
         while True:
             sleep_len = self.birthdays['next_time'] - time.time()
 
             if sleep_len < 0:
                 sleep_len = 60 * 60 * 6
 
-                self.birthdays['next_time'] = time.time() + sleep_len
-                with open(const.BIRTHDAYFILE, 'w') as f:
-                    json.dump(self.birthdays, f, indent=4)
-  
+                new_time = time.time() + sleep_len
+                await self.roomdata_man.execute(f"UPDATE birthdays SET day={new_time} WHERE name='next_time' AND room='animeandmanga")
+
             await asyncio.sleep(sleep_len)
             await self.send_birthday_text(automatic=True)
 
-            self.birthdays = json.load(open(const.BIRTHDAYFILE))
-            self.birthdays['next_time'] = time.time() + 60 * 60 * 6
-            with open(const.BIRTHDAYFILE, 'w') as f:
-                json.dump(self.birthdays, f, indent=4)
+            new_time = time.time() + 60 * 60 * 6
+            await self.roomdata_man.execute(f"UPDATE birthdays SET day={new_time} WHERE name='next_time' AND room='animeandmanga")
 
 
     async def gacha_repeater(self):
@@ -303,7 +303,7 @@ class Bot:
                 if i == idx:
                     sentence = l[:-1]
                     break
-        
+
         words = sentence.split(' ')
 
         test_str = ''
@@ -393,7 +393,7 @@ class Bot:
                 rank = user[0]
                 username = user[1:].split('@')[0]
                 self.roomlist[curr_room].add_user(username, rank)
-        
+
         if parts[1] == 'J':
             user = parts[2]
             rank = user[0]
@@ -606,7 +606,7 @@ class Bot:
         for battle in self.battles:
             if true_challenger in self.battles[battle].players:
                 return
-        
+
         if battle_format == const.METRONOME_BATTLE:
             team = Battle.make_team(battle_format)
             await self.outgoing.put(f'|/utm {team}\n/accept {challenger}')
@@ -624,7 +624,7 @@ class Bot:
         # Is None in case of no currently active games
         if not games:
             games = {}
-            
+
             # Play on ladder if idle
             if not updatesearch['searching'] and self.allow_laddering:
                 team = Battle.make_team(const.METRONOME_BATTLE)
@@ -674,7 +674,7 @@ class Bot:
         '''
         if not User.compare_ranks(caller[0], '+'):
             return
-        
+
         emote_list = await self.roomdata_man.execute("SELECT name, url, times_used FROM emotes "
                                                         f"WHERE room='{room}'")
 
@@ -780,19 +780,13 @@ class Bot:
 
         char_uhtml = '<tr>'
         for i, char in enumerate(characters):
-            img_uhtml = ''
+            img_uhtml = gen_uhtml_img_code(const.IMG_NOT_FOUND, height_resize=64, width_resize=64)
+            if char[1]:
+                img_uhtml = gen_uhtml_img_code(char[1], height_resize=64, width_resize=64)
+
             char_url = ''
-            if len(char) == 4:
-                # MAL char formatting is [name, img suffix, MAL page suffix]
-                img_uhtml = gen_uhtml_img_code(const.IMG_NOT_FOUND, height_resize=64, width_resize=64)
-                if char[1]:
-                    img_uhtml = gen_uhtml_img_code(f'{const.MAL_IMG_URL}{char[1]}', height_resize=64, width_resize=64)
-
-                char_url = f'{const.MAL_URL}{char[3]}/{char[2]}'
-
-            elif len(char) == 2:
-                # A/M staff formatting is [name, img link]
-                img_uhtml = f'<center><img src=\'{char[1]}\' width=64 height=64></center>'
+            if len(char) == 3:
+                char_url = char[2]
 
             char_uhtml += (f'<td style=\'padding:5px\'>{img_uhtml}</td>'
                             '<td style=\'padding-right:5px; width:80px\'>'
@@ -816,10 +810,10 @@ class Bot:
             automatic (bool): Whether or not this was automatically scheduled.
             ctx (str): the context to send to.
         '''
-        self.birthdays = json.load(open(const.BIRTHDAYFILE, encoding='utf-8'))
         today = datetime.datetime.today().strftime('%B %d').replace(' 0', ' ')
         short_today = datetime.datetime.today().strftime('%b %d').replace(' 0', ' ')
-        birthday_chars = self.birthdays[today]
+        birthday_chars = await self.roomdata_man.execute("SELECT name, image, link FROM birthdays "
+                                                        f"WHERE day='{today}' AND room='animeandmanga'")
 
         if not birthday_chars:
             if not automatic:
@@ -837,7 +831,9 @@ class Bot:
 
         if today == 'February 28' and (curr_year % 4 != 0 or curr_year % 100 == 0):
             tomorrow_uhtml = '<tr><td colspan=10><b><center>(Feb 29)</center></b></td></tr>'
-            tomorrow_uhtml += self.birthday_chars_to_uhtml(self.birthdays['February 29'])
+            tomorrow_chars = await self.roomdata_man.execute("SELECT name, image, link FROM birthdays "
+                                                            f"WHERE day='February 29' AND room='animeandmanga'")
+            tomorrow_uhtml += self.birthday_chars_to_uhtml(tomorrow_chars)
 
         uhtml = (f'<div style=\'{max_scroll}\'>'
                   '<center><table style=\'border:3px solid #0088cc; border-spacing:0px; '
@@ -1028,6 +1024,11 @@ class Bot:
 
             cmd_obj = SongCommand(**cmd_kwargs)
 
+        elif command[0] in ['birthday_add', 'birthday_rm']:
+            cmd_kwargs['req_rank'] = '%'
+
+            cmd_obj = BirthdayCommand(**cmd_kwargs)
+
 
         if cmd_obj: # Remove when all commands are refactored
             msg = await cmd_obj.evaluate()
@@ -1079,7 +1080,7 @@ class Bot:
             if len(command) > 1:
                 wpm_user = ' '.join(command[1:])
                 true_wpm_user = find_true_name(wpm_user)
-            
+
             try:
                 wpminfo = self.wpms.loc[true_wpm_user]
             except KeyError:
@@ -1121,7 +1122,7 @@ class Bot:
             if len(command) > 1:
                 to_parse = ' '.join(command[1:])
             args = steam_arg_parser(to_parse, true_caller)
-            
+
             if args:
                 args.username = find_true_name(' '.join(args.username))
             else:
@@ -1203,7 +1204,7 @@ class Bot:
                     suckinfo = pd.DataFrame([[true_caller, 0]],
                                             columns=['user', 'count'])
                     self.sucklist = self.sucklist.append(suckinfo)
-                
+
                 # There's a global cooldown of a random number between
                 # 15 and 90 minutes.
                 end_time = self.sucklist.loc[self.sucklist['user'] == const.TIMER_USER, 'count'][0]
@@ -1219,7 +1220,7 @@ class Bot:
 
             self.sucklist.to_csv(const.SUCKFILE, index=False)
 
-        
+
         # Trivia
 
         elif (command[0] == 'trivia' or command[0] == 'anagrams') and not pm:
@@ -1466,6 +1467,7 @@ class Bot:
 
         if pm:
             msg = '/w {}, '.format(true_caller) + msg
+
         await self.outgoing.put(room + '|' + msg)
 
 
@@ -1478,6 +1480,13 @@ class Bot:
         try:
             while True:
                 msg = await self.outgoing.get()
+
+                # AFD
+                if not msg.startswith('|') and random.random() < 0.0001:
+                    room = msg.split('|')[0]
+                    url = 'https://i.imgur.com/z4nlXPW.png'
+                    uhtml = gen_uhtml_img_code(url, height_resize=50, alt='worryclown')
+                    msg = f'{room}|/adduhtml hippo-worryclown, {uhtml}'
 
                 print('Sending: ')
                 print(msg)
