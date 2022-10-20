@@ -115,7 +115,7 @@ See ]anime.
 
 Note: Only usable in animeandmanga right now.
 
-### ]addmal USERNAME
+### ]mal_add USERNAME
 Sets your MAL username to be USERNAME. This must be a valid MAL account.
 
 ### ]mal [USER] [-r]
