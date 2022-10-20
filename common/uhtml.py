@@ -2,7 +2,7 @@ import json
 
 from airium import Airium
 
-from common.utils import img_dims_from_uri
+from common.utils import img_dims_from_uri, sanitize_html
 
 SHOWCASE_BORDER_1 = 'https://i.imgur.com/auG4Q2a.png'
 
@@ -279,7 +279,7 @@ class ItemInfo(InfoBox):
                 with self.html.tr():
                     with self.html.td(colspan=3, style='width:360px; padding:5px'):
                         self.html.div(style='overflow-y: scroll; max-height: 100px',
-                                      _t=kwargs['synopsis'])
+                                      _t=sanitize_html(kwargs['synopsis']))
 
         return self.uglify()
 

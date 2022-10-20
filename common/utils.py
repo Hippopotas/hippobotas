@@ -116,3 +116,9 @@ def is_url(uri):
             r'(?:/?|[/?]\S+)$', re.IGNORECASE)
 
     return (re.match(regex, uri) is not None)
+
+
+def sanitize_html(text):
+    """ Escape annoying characters from text that goes in uhtml.
+    """
+    return text.replace('<', '&lt;').replace('>', '&gt;')
