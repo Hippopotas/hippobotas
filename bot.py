@@ -27,7 +27,7 @@ from common.connections import ApiManager, DatabaseManager
 from common.mal import MalManager
 from common.steam import set_steam_user, show_steam_user, steam_user_rand_series
 from common.tcg import display_mtg_card, display_ptcg_card, display_ygo_card
-from common.utils import find_true_name, gen_uhtml_img_code, trivia_leaderboard_msg
+from common.utils import find_true_name, gen_uhtml_img_code, trivia_leaderboard_msg, birthday_text
 from room import Room
 from trivia import check_answer
 from user import User
@@ -41,7 +41,10 @@ JOINLIST = [const.ANIME_ROOM,
             const.VTUBE_ROOM,
             const.SCHOL_ROOM,
             const.SPORTS_ROOM,
-            const.ARTS_ROOM]
+            const.ARTS_ROOM,
+            const.KPOP_ROOM,
+            const.SMASH_ROOM,
+            const.WRESTLING_ROOM]
 WS = None
 
 
@@ -184,9 +187,12 @@ class Bot:
         Args:
         '''
         asyncio.create_task(self.ping_connect(), name='ping-connect')
-        asyncio.create_task(self.birthday_repeater(), name='birthdays')
-        asyncio.create_task(self.gacha_repeater(), name='gacha-repeat')
         asyncio.create_task(self.user_repeater(), name='user-repeat')
+        asyncio.create_task(self.prune_anotd(), name='anotd_repeat')
+
+        birthday_rooms = self.roomdata_man.execute("SELECT DISTINCT room FROM birthdays")
+        for room in birthday_rooms:
+            asyncio.create_task(self.birthday_repeater(room[0]), name=f'{room[0]}-birthdays')
 
 
     async def ping_connect(self):
@@ -199,27 +205,28 @@ class Bot:
         await self.outgoing.put(f'|/w {self.username}, ping')
 
 
-    async def birthday_repeater(self):
+    async def birthday_repeater(self, ctx):
         '''
         Repeating process for birthday display.
 
         Args:
         '''
-        next_time = await self.roomdata_man.execute("SELECT 'day' FROM birthdays WHERE name='next_time' AND room='animeandmanga'")[0][0]
+        next_time = await self.roomdata_man.execute(f"SELECT 'day' FROM birthdays WHERE name='next_time' AND room='{ctx}'")[0][0]
         while True:
-            sleep_len = self.birthdays['next_time'] - time.time()
+            sleep_len = next_time - time.time()
 
             if sleep_len < 0:
                 sleep_len = 60 * 60 * 6
 
                 new_time = time.time() + sleep_len
-                await self.roomdata_man.execute(f"UPDATE birthdays SET day={new_time} WHERE name='next_time' AND room='animeandmanga")
+                await self.roomdata_man.execute(f"UPDATE birthdays SET day={new_time} WHERE name='next_time' AND room='{ctx}")
 
             await asyncio.sleep(sleep_len)
-            await self.send_birthday_text(automatic=True)
+            text = await birthday_text(self, automatic=True, room=ctx)
+            await self.outgoing.put(f'{ctx}|/adduhtml {text}')
 
             new_time = time.time() + 60 * 60 * 6
-            await self.roomdata_man.execute(f"UPDATE birthdays SET day={new_time} WHERE name='next_time' AND room='animeandmanga")
+            await self.roomdata_man.execute(f"UPDATE birthdays SET day={new_time} WHERE name='next_time' AND room='{ctx}")
 
 
     async def gacha_repeater(self):
@@ -282,6 +289,22 @@ class Bot:
             for u in self.users:
                 self.users[u]['group'] = None
                 await self.get_userinfo(u)
+
+
+    async def prune_anotd(self):
+        '''
+        Prunes the anotd banlist once a day.
+
+        Args:
+        '''
+        query = "SELECT medium, mal_id FROM anotd_banlist WHERE expiration < date('now')"
+        while True:
+            to_delete = await self.roomdata_man.execute(query)
+            for medium, mal_id in to_delete:
+                await self.roomdata_man.execute("DELETE FROM anotd_banlist WHERE "
+                                               f"medium='{medium}' AND mal_id='{mal_id}'")
+
+            await asyncio.sleep(24 * 60 * 60)
 
 
     async def wpm(self, true_user):
@@ -712,7 +735,7 @@ class Bot:
                     }
 
         async with aiohttp.ClientSession() as session:
-            async with session.post('http://play.pokemonshowdown.com/action.php', json=details) as r:
+            async with session.post('http://play.pokemonshowdown.com/api/login', json=details) as r:
                 resp = await r.text()
                 assertion = json.loads(resp[1:])['assertion']
                 await self.outgoing.put('|/trn ' + self.username + ',0,'  + str(assertion))
@@ -766,17 +789,9 @@ class Bot:
             characters (list): list of character infos.
         '''
         num_chars = len(characters)
-        display_len = 5
+        display_len = 4
         if num_chars % 3 == 0 and (num_chars / 3) < 4:
             display_len = 3
-        elif num_chars % 4 == 0 and (num_chars / 4) < 5:
-            display_len = 4
-        elif num_chars % 5 == 0 and (num_chars / 5) < 5:
-            display_len = 5
-        elif num_chars % 5 > 2:
-            display_len = 5
-        elif num_chars % 4 > 1:
-            display_len = 4
 
         char_uhtml = '<tr>'
         for i, char in enumerate(characters):
@@ -800,55 +815,6 @@ class Bot:
         char_uhtml += '</tr>'
 
         return char_uhtml
-
-
-    async def send_birthday_text(self, automatic, ctx=const.ANIME_ROOM):
-        '''
-        Sends a uhtml-formatted table of the current date's birthdays.
-
-        Args:
-            automatic (bool): Whether or not this was automatically scheduled.
-            ctx (str): the context to send to.
-        '''
-        today = datetime.datetime.today().strftime('%B %d').replace(' 0', ' ')
-        short_today = datetime.datetime.today().strftime('%b %d').replace(' 0', ' ')
-        birthday_chars = await self.roomdata_man.execute("SELECT name, image, link FROM birthdays "
-                                                        f"WHERE day='{today}' AND room='animeandmanga'")
-
-        if not birthday_chars:
-            if not automatic:
-                await self.outgoing.put(f'{ctx}|No known birthdays today! Submit birthdays here: https://forms.gle/j5T3CkqSovE4JJ6A7')
-            return
-
-        char_uhtml = self.birthday_chars_to_uhtml(birthday_chars)
-
-        tomorrow_uhtml = ''
-        curr_year = datetime.datetime.today().year
-
-        max_scroll = ''
-        if len(birthday_chars) > 15:
-            max_scroll = 'overflow-y: scroll; max-height: 250px'
-
-        if today == 'February 28' and (curr_year % 4 != 0 or curr_year % 100 == 0):
-            tomorrow_uhtml = '<tr><td colspan=10><b><center>(Feb 29)</center></b></td></tr>'
-            tomorrow_chars = await self.roomdata_man.execute("SELECT name, image, link FROM birthdays "
-                                                            f"WHERE day='February 29' AND room='animeandmanga'")
-            tomorrow_uhtml += self.birthday_chars_to_uhtml(tomorrow_chars)
-
-        uhtml = (f'<div style=\'{max_scroll}\'>'
-                  '<center><table style=\'border:3px solid #0088cc; border-spacing:0px; '
-                  'border-radius:10px; background-image:url(https://i.imgur.com/l8iJKoX.png); '
-                  'background-size:cover\'>'
-                  '<thead><tr><th colspan=10 style=\'padding:5px 5px 10px 5px\'>'
-                 f'Today\'s Birthdays ({short_today})</th></tr></thead><tbody>'
-                 f'{char_uhtml}'
-                 f'{tomorrow_uhtml}'
-                  '<tr><td colspan=10 style=\'text-align:right; font-size:8px; '
-                  'padding: 0px 5px 5px 0px\'><a href=\'https://forms.gle/qfKSeyNtpueTBACn7\' '
-                  'style=\'color:inherit\'>Submit characters here</a></td></tr>'
-                  '</tbody></table></center></div>')
-
-        await self.outgoing.put(f'{ctx}|/adduhtml hippo-birthdays, {uhtml}')
 
 
     async def gen_game_uhtml(self, game_info, headers, true_caller, ctx):
@@ -987,7 +953,7 @@ class Bot:
             cmd_kwargs['req_rank'] = '+'
             cmd_kwargs['pm_response'] = False
 
-            if command[0] in ['birthday', 'anime', 'manga', 'randanime', 'randmanga']:
+            if command[0] in ['anime', 'manga', 'randanime', 'randmanga']:
                 cmd_kwargs['allowed_rooms'] = [const.ANIME_ROOM]
 
             if command[0] in ['mal']:

@@ -1,3 +1,4 @@
+import asyncio
 import datetime
 import re
 import urllib.request
@@ -122,3 +123,49 @@ def sanitize_html(text):
     """ Escape annoying characters from text that goes in uhtml.
     """
     return text.replace('<', '&lt;').replace('>', '&gt;')
+
+
+async def birthday_text(bot, automatic, room):
+    '''
+    Sends a uhtml-formatted table of the current date's birthdays.
+
+    Args:
+        automatic (bool): Whether or not this was automatically scheduled.
+        room (str): The room to get birthdays of.
+    '''
+    today = datetime.datetime.today().strftime('%B %d').replace(' 0', ' ')
+    short_today = datetime.datetime.today().strftime('%b %d').replace(' 0', ' ')
+    birthday_chars = await bot.roomdata_man.execute("SELECT name, image, link FROM birthdays "
+                                                    f"WHERE day='{today}' AND room='{room}'")
+
+    if not birthday_chars:
+        if not automatic:
+            return 'No known birthdays today! Get a staff to add some with ]birthday_add!'
+        return
+
+    char_uhtml = bot.birthday_chars_to_uhtml(birthday_chars)
+
+    tomorrow_uhtml = ''
+    curr_year = datetime.datetime.today().year
+
+    max_scroll = ''
+    if len(birthday_chars) > 15:
+        max_scroll = 'overflow-y: scroll; max-height: 250px'
+
+    if today == 'February 28' and (curr_year % 4 != 0 or curr_year % 100 == 0):
+        tomorrow_uhtml = '<tr><td colspan=10><b><center>(Feb 29)</center></b></td></tr>'
+        tomorrow_chars = await bot.roomdata_man.execute("SELECT name, image, link FROM birthdays "
+                                                       f"WHERE day='February 29' AND room='{room}'")
+        tomorrow_uhtml += bot.birthday_chars_to_uhtml(tomorrow_chars)
+
+    uhtml = (f'<div style=\'{max_scroll}\'>'
+                '<center><table style=\'border:3px solid #0088cc; border-spacing:0px; '
+                'border-radius:10px; background-image:url(https://i.imgur.com/l8iJKoX.png); '
+                'background-size:cover\'>'
+                '<thead><tr><th colspan=10 style=\'padding:5px 5px 10px 5px\'>'
+                f'Today\'s Birthdays ({short_today})</th></tr></thead><tbody>'
+                f'{char_uhtml}'
+                f'{tomorrow_uhtml}'
+                '</tbody></table></center></div>')
+
+    return f'hippo-birthdays, {uhtml}'

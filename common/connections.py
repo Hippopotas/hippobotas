@@ -3,6 +3,7 @@ import asyncio
 import sqlite3
 
 from contextlib import asynccontextmanager
+from common.utils import find_true_name
 
 
 class ApiManager():
@@ -28,6 +29,9 @@ class DatabaseManager():
 
 
     async def execute(self, query):
+        if 'droptable' in find_true_name(query):
+            print(f'SOMEONE TRIED TO DROP TABLES WITH: {query}')
+            return
         await self.db_lock.acquire()
 
         rows = []

@@ -11,7 +11,7 @@ from common.anilist import add_anotd_bl, anilist_search, anilist_rand_series, rm
 from common.arg_parsers import mal_arg_parser
 from common.mal import mal_url_info
 from common.utils import find_true_name, gen_uhtml_img_code, curr_cal_date, \
-                         monospace_table_row, is_url, is_uhtml, trivia_leaderboard_msg
+                         monospace_table_row, is_url, is_uhtml, birthday_text
 from user import User
 
 
@@ -196,7 +196,7 @@ class UhtmlCommand(Command):
 
             if self.room not in calendar:
                 calendar[self.room] = {curr_day_str: []}
-                json.dump(calendar, open(const.CALENDARFILE, 'w', indent=4))
+                json.dump(calendar, open(const.CALENDARFILE, 'w'), indent=4)
             if not calendar[self.room][curr_day_str]:
                 return 'No images found for this date.'
 
@@ -205,7 +205,7 @@ class UhtmlCommand(Command):
             self.msg += f'hippo-calendar, {uhtml}'
 
         elif self.command == 'birthday':
-            await self.bot.send_birthday_text(automatic=False)
+            self.msg += await birthday_text(self.bot, automatic=False, room=self.room)
 
         elif self.command == 'anime':
             query = ' '.join(self.args)

@@ -13,6 +13,9 @@ VG_ROOM = 'videogames'
 VTUBE_ROOM = 'vtubers'
 PEARY_ROOM = 'bikinibottom'
 ARTS_ROOM = 'artsculture'
+KPOP_ROOM = 'kpop'
+SMASH_ROOM = 'smashbros'
+WRESTLING_ROOM = 'prowrestling'
 
 MAX_FRIENDS = 100
 
