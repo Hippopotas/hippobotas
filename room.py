@@ -1,7 +1,7 @@
 import asyncio
 
 from common.constants import ANIME_ROOM, LEAGUE_ROOM, VG_ROOM
-from common.utils import find_true_name, trivia_leaderboard_msg
+from common.utils import find_true_name
 from trivia import TriviaGame
 from user import User
 

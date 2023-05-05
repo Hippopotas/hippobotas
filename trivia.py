@@ -14,7 +14,7 @@ import common.constants as const
 
 from common.anilist import anilist_num_entries
 from common.qbowl_db import QuestionTable
-from common.utils import find_true_name, gen_uhtml_img_code, trivia_leaderboard_msg
+from common.utils import find_true_name, gen_uhtml_img_code, leaderboard_uhtml
 
 BASE_DIFF = 3
 VG_DIFF_SCALE = 300
@@ -226,7 +226,7 @@ class TriviaGame:
         await self.bot.outgoing.put(f'{self.room}|/adduhtml {UHTML_NAME}, {endtext}')
         await asyncio.sleep(1)
         t_title = 'Quizbowl Leaderboard' if self.quizbowl else 'Trivia Leaderboard'
-        await self.bot.outgoing.put(f"{self.room}|{trivia_leaderboard_msg(self.leaderboard(), t_title)}")
+        await self.bot.outgoing.put(f"{self.room}|/adduhtml {leaderboard_uhtml(self.leaderboard(), t_title)}")
 
         self.active = False
 

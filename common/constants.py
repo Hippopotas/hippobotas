@@ -19,10 +19,10 @@ WRESTLING_ROOM = 'prowrestling'
 
 MAX_FRIENDS = 100
 
-SIMPLE_COMMANDS = ['help', 'dab', 'owo', 'google', 'joogle', 'bing', 'jing', 'jibun', 'mal_add', 'mal_set']
-UHTML_COMMANDS = ['plebs', 'calendar', 'birthday',
-                  'anime', 'manga', 'randanime', 'randmanga',
-                  'mal']
+SIMPLE_COMMANDS = ['help', 'dab', 'owo', 'google', 'joogle', 'bing', 'jing', 'jibun',
+                   'mal_add', 'mal_set', 'wpm_reset', 'wpm']
+UHTML_COMMANDS = ['plebs', 'calendar', 'birthday', 'wpm_top',
+                  'anime', 'manga', 'randanime', 'randmanga', 'mal']
 
 TIMER_USER = 'T*'
 

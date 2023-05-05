@@ -69,9 +69,9 @@ def gen_uhtml_img_code(url, height_resize=300, width_resize=None,
     return uhtml
 
 
-def trivia_leaderboard_msg(leaderboard, title, name='tleaderboard', metric='pts'):
+def leaderboard_uhtml(leaderboard, title, name='tleaderboard', metric='pts'):
     """ Generates basic HTML code for a leaderboard. """
-    msg = (f'/adduhtml {name}, '
+    msg = (f'{name}, '
             '<center><table><tr><th colspan=\'3\' style=\'border-bottom:1px solid\'>'
             '{}</th></tr>'.format(title))
 

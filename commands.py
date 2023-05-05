@@ -11,7 +11,7 @@ from common.anilist import add_anotd_bl, anilist_search, anilist_rand_series, rm
 from common.arg_parsers import mal_arg_parser
 from common.mal import mal_url_info
 from common.utils import find_true_name, gen_uhtml_img_code, curr_cal_date, \
-                         monospace_table_row, is_url, is_uhtml, birthday_text
+                         monospace_table_row, is_url, is_uhtml, birthday_text, leaderboard_uhtml
 from user import User
 
 
@@ -132,6 +132,34 @@ class SimpleCommand(Command):
             mal_user = ''.join(self.args)
             self.msg += await self.bot.mal_man.set_user(self.true_caller, mal_user, self.bot.jikan_man)
 
+        elif self.command == 'wpm_reset':
+            try:
+                self.bot.wpms.loc[self.true_caller]
+            except KeyError:
+                pass
+            else:
+                self.bot.wpms.loc[self.true_caller, ['top_wpm', 'avg_wpm', 'recent_runs']] = 0, 0, []
+                self.bot.wpms.to_csv(const.WPMFILE)
+            self.msg = f'Reset {self.caller}\'s typing speed record to 0 WPM.'
+
+        elif self.command == 'wpm':
+            wpm_user = self.caller
+            true_wpm_user = self.true_caller
+            if self.args:
+                wpm_user = ' '.join(self.args)
+                true_wpm_user = find_true_name(wpm_user)
+
+            try:
+                wpminfo = self.bot.wpms.loc[true_wpm_user]
+            except KeyError:
+                self.msg = f'{wpm_user} has not taken a typing test.'
+            else:
+                top_wpm = wpminfo['top_wpm']
+                avg_wpm = wpminfo['avg_wpm']
+                run_count = len(wpminfo['recent_runs'])
+                self.msg = f'{wpm_user} - Top speed: {top_wpm} WPM. Average of past {run_count} runs: {avg_wpm} WPM.'
+
+
         return self.msg
 
 
@@ -203,6 +231,20 @@ class UhtmlCommand(Command):
             date_imgs = calendar[self.room][curr_day_str]
             uhtml = gen_uhtml_img_code(random.choice(date_imgs), height_resize=200)
             self.msg += f'hippo-calendar, {uhtml}'
+
+        elif self.command == 'wpm_top':
+            metric = 'avg_wpm'
+            metric_title = '(Last 5 Runs Avg.)'
+            if '-s' in self.args or '--single' in self.args:
+                metric = 'top_wpm'
+                metric_title = '(Single Run)'
+
+            wpmboard = self.bot.wpms.sort_values(metric, ascending=False)
+            if metric == 'avg_wpm':
+                wpmboard = wpmboard[wpmboard['recent_runs'].map(len) >= 5]
+            wpmboard = wpmboard.reset_index().head(n=5)[['user', metric]].values.tolist()
+
+            self.msg += leaderboard_uhtml(wpmboard, f'Fastest WPM {metric_title}', name='wpmboard', metric='WPM')
 
         elif self.command == 'birthday':
             self.msg += await birthday_text(self.bot, automatic=False, room=self.room)

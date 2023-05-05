@@ -27,7 +27,7 @@ from common.connections import ApiManager, DatabaseManager
 from common.mal import MalManager
 from common.steam import set_steam_user, show_steam_user, steam_user_rand_series
 from common.tcg import display_mtg_card, display_ptcg_card, display_ygo_card
-from common.utils import find_true_name, gen_uhtml_img_code, trivia_leaderboard_msg, birthday_text
+from common.utils import find_true_name, gen_uhtml_img_code, leaderboard_uhtml, birthday_text
 from room import Room
 from trivia import check_answer
 from user import User
@@ -1013,50 +1013,6 @@ class Bot:
             asyncio.create_task(self.wpm(true_caller), name='wpm-{}'.format(true_caller))
             return
 
-        elif command[0] == 'wpm_top':
-            metric = 'avg_wpm'
-            metric_title = '(Last 5 Runs Avg.)'
-            if len(command) > 1:
-                if command[1] == '-s' or command[1] == '--single':
-                    metric = 'top_wpm'
-                    metric_title = '(Single Run)'
-
-            wpmboard = self.wpms.sort_values(metric, ascending=False)
-            if metric == 'avg_wpm':
-                wpmboard = wpmboard[wpmboard['recent_runs'].map(len) >= 5]
-            wpmboard = wpmboard.reset_index().head(n=5)[['user', metric]].values.tolist()
-
-            msg = trivia_leaderboard_msg(wpmboard, f'Fastest WPM {metric_title}', name='wpmboard', metric='WPM')
-            if pm:
-                msg = "This command is not supported in PMs."
-
-        elif command[0] == 'wpm_reset':
-            try:
-                wpminfo = self.wpms.loc[true_caller]
-            except KeyError:
-                pass
-            else:
-                self.wpms.loc[true_caller, ['top_wpm', 'avg_wpm', 'recent_runs']] = 0, 0, []
-                self.wpms.to_csv(const.WPMFILE)
-            msg = f'Reset {caller}\'s typing speed record to 0 WPM.'
-
-        elif command[0] == 'wpm':
-            wpm_user = caller
-            true_wpm_user = true_caller
-            if len(command) > 1:
-                wpm_user = ' '.join(command[1:])
-                true_wpm_user = find_true_name(wpm_user)
-
-            try:
-                wpminfo = self.wpms.loc[true_wpm_user]
-            except KeyError:
-                msg = f'{wpm_user} has not taken a typing test.'
-            else:
-                top_wpm = wpminfo['top_wpm']
-                avg_wpm = wpminfo['avg_wpm']
-                run_count = len(wpminfo['recent_runs'])
-                msg = f'{wpm_user} - Top speed: {top_wpm} WPM. Average of past {run_count} runs: {avg_wpm} WPM.'
-
         # tcg commands
         elif command[0] == 'mtg' and room == const.TCG_ROOM and User.compare_ranks(caller[0], '+'):
             query = ' '.join(command[1:])
@@ -1155,7 +1111,7 @@ class Bot:
                 if command[1] == 'top' and not pm:
                     suckboard = self.sucklist.sort_values('count', ascending=False)
                     suckboard = suckboard[suckboard['user'] != const.TIMER_USER].head(n=5).values.tolist()
-                    msg = trivia_leaderboard_msg(suckboard, 'Suckiest', name='suckboard')
+                    msg = f"/adduhtml {leaderboard_uhtml(suckboard, 'Suckiest', name='suckboard')}"
 
                     await self.outgoing.put(room + '|' + msg)
                     return
@@ -1253,7 +1209,7 @@ class Bot:
                         to_show = int(command[2])
 
                 title = 'Trivia Leaderboard'
-                msg = trivia_leaderboard_msg(trivia_game.leaderboard(n=to_show), title)
+                msg = f'/adduhtml {leaderboard_uhtml(trivia_game.leaderboard(n=to_show), title)}'
             elif command[1] == 'skip' and User.compare_ranks(caller[0], '+'):
                 if trivia_game.active and trivia_game.answers:
                     answer = trivia_game.answers[-1]
