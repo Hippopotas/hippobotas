@@ -12,6 +12,7 @@ import pandas as pd
 import random
 import re
 import shlex
+import sys
 import time
 import traceback
 import websockets
@@ -149,16 +150,6 @@ class Bot:
             print(f'Could not read {const.SUCKFILE} ({e}); starting a new suck list.')
 
         return pd.DataFrame([[const.TIMER_USER, 0.0]], columns=['user', 'count'])
-
-
-    def reconnect(self):
-        '''
-        Drops the current Showdown connection. The listener will
-        notice and open a fresh one.
-        '''
-        print('Reconnecting to Showdown.')
-        if WS is not None:
-            asyncio.get_running_loop().create_task(WS.close())
 
 
     async def refresh_igdb_token(self):
@@ -1486,10 +1477,14 @@ class DiscordBot:
     def __init__(self):
         bot = discord.Bot(intents=discord.Intents.default())
 
-        @bot.command(description="Attempts to reconnect the bot to PS.", guild_ids=[218560071540408320])
+        @bot.command(description="Restarts the bot, reloading its code.", guild_ids=[218560071540408320])
         async def restart_ps(ctx):
             await ctx.send_response("Restarting bot.", ephemeral=True)
-            BOT.reconnect()
+            try:
+                await restart_process()
+            except OSError as e:
+                traceback.print_exc()
+                await ctx.followup.send(f'Restart failed: {e}', ephemeral=True)
 
         @bot.event
         async def on_ready():
@@ -1504,6 +1499,35 @@ class DiscordBot:
             await self.bot.start(os.getenv('DISCORD_TOKEN'))
         except Exception:
             traceback.print_exc()
+
+
+async def restart_process():
+    '''
+    Replaces the running bot with a fresh copy of itself (same PID, working
+    directory, environment, and log), so code and package updates on disk
+    take effect. Only returns if the relaunch fails.
+    '''
+    print('Restarting the bot process.')
+
+    # Trivia scores are otherwise only saved when a game ends.
+    if BOT is not None:
+        for room in BOT.roomlist.values():
+            if room.trivia.active:
+                try:
+                    room.trivia.save_scores()
+                except Exception:
+                    traceback.print_exc()
+
+    # Log out of Showdown cleanly rather than just dropping the socket.
+    if WS is not None:
+        try:
+            await asyncio.wait_for(WS.close(), timeout=5)
+        except Exception:
+            pass
+
+    sys.stdout.flush()
+    sys.stderr.flush()
+    os.execv(sys.executable, [sys.executable] + sys.argv)
 
 
 BOT = None

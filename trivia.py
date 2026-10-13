@@ -255,9 +255,12 @@ class TriviaGame:
         else:
             self.scoreboard.loc[self.scoreboard['user'] == user, 'score'] += 1
 
-    async def end(self):
+    def save_scores(self):
         self.scoreboard = self.scoreboard.sort_values('score', ascending=False)
         self.scoreboard.to_csv('trivia/{}.txt'.format(self.room), index=False)
+
+    async def end(self):
+        self.save_scores()
 
         self.questions.ended = True
         while not self.questions.ending_acknowledged:
