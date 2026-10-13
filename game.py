@@ -39,7 +39,13 @@ class Game:
     
     def register(self, player):
         if self.status != STATUS_SIGNUP:
-            
+            return False
+
+        self.players.append(player)
+        if len(self.players) >= self.max_players:
+            self.status = STATUS_FULL
+        return True
+
 
 class Player(User):
     def __init__(self):

@@ -15,12 +15,12 @@ class Room:
         self.trivia = TriviaGame(self.roomname, self.bot)
     
     def add_user(self, username, rank):
+        self.remove_user(username)
         self.users.append(User(username, rank))
     
     def remove_user(self, username):
-        for u in self.users:
-            if u.true_name == find_true_name(username):
-                self.users.remove(u)
+        true_name = find_true_name(username)
+        self.users = [u for u in self.users if u.true_name != true_name]
 
     def get_user(self, username):
         for u in self.users:

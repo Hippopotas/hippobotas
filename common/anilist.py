@@ -17,10 +17,10 @@ async def anilist_num_entries(query, query_vars, session):
     Does not have the anilist context manager lock.
     '''
     async with session.post(const.ANILIST_API, json={'query': query, 'variables': query_vars}) as r:
-        resp = await r.json()
-
         if r.status != 200:
             return
+
+        resp = await r.json()
 
     return resp['data']['Page']['pageInfo']['total']
 
@@ -60,10 +60,10 @@ async def anilist_search(medium, search, anilist_man):
     async with anilist_man.lock():
         async with aiohttp.ClientSession() as session:
             async with session.post(const.ANILIST_API, json={'query': query, 'variables': query_vars}) as r:
-                resp = await r.json()
+                resp = await r.json(content_type=None)
 
                 if r.status != 200:
-                    err_msg = resp['errors'][0]['message']
+                    err_msg = (resp or {}).get('errors', [{}])[0].get('message', 'unknown error')
                     return f'hippoerror, Status code {r.status} when fetching {search}: {err_msg}'
 
                 series_list = resp['data']['Page']['media']
@@ -142,20 +142,27 @@ async def anilist_rand_series(medium, anilist_man, genres=[], tags=[]):
             num_entries = await anilist_num_entries(query, query_vars, session)
 
         if not num_entries:
-            return 'No series found with the given specifications.'
+            return 'hippoerror, No series found with the given specifications.'
 
         query_vars['page'] = random.randint(1, num_entries)
 
         series_data = {}
-        async with anilist_man.lock():
-            async with session.post(const.ANILIST_API, json={'query': query, 'variables': query_vars}) as r:
-                resp = await r.json()
+        while not series_data:
+            async with anilist_man.lock():
+                async with session.post(const.ANILIST_API, json={'query': query, 'variables': query_vars}) as r:
+                    resp = await r.json(content_type=None)
 
-                if r.status != 200:
-                    err_msg = resp['errors'][0]['message']
-                    return f'Status code {r.status} when fetching {query}: {err_msg}'
-            
-                series_data = resp['data']['Page']['media'][0]
+                    if r.status != 200:
+                        err_msg = (resp or {}).get('errors', [{}])[0].get('message', 'unknown error')
+                        return f'hippoerror, Status code {r.status} when fetching a random {medium}: {err_msg}'
+
+                    media = resp['data']['Page']['media']
+                    if media:
+                        series_data = media[0]
+                    elif query_vars['page'] <= 1:
+                        return 'hippoerror, No series found with the given specifications.'
+                    else:
+                        query_vars['page'] = query_vars['page'] // 2
 
     mal_url = f'https://myanimelist.net/{medium}/{series_data["idMal"]}'
     img_uhtml = gen_uhtml_img_code(series_data['coverImage']['extraLarge'], dims=(65, 100))
@@ -219,6 +226,9 @@ async def get_related_series(medium, series, anilist_man):
                         title = resp['data']['Page']['media'][0]['title']['userPreferred']
 
                     for rs in resp['data']['Page']['media'][0]['relations']['edges']:
+                        # Not every AniList entry has a MAL counterpart.
+                        if rs['node']['idMal'] is None:
+                            continue
                         rs_info = (rs['node']['type'].lower(), rs['node']['idMal'])
                         if rs_info not in related_series and rs['relationType'] != 'CHARACTER':
                             related_series.append(rs_info)
@@ -232,20 +242,20 @@ async def add_anotd_bl(medium, series, anilist_man, db_man):
     expiration = str(datetime.datetime.now() + datetime.timedelta(days=365))
 
     await db_man.execute("INSERT INTO anotd_banlist (medium, mal_id, name, expiration) "
-                            f"VALUES ('{medium}', {series}, '{title}', '{expiration}')")
+                         "VALUES (?, ?, ?, ?)", (medium, series, title, expiration))
 
     for s in related_series:
-        exists = await db_man.execute(f"SELECT * FROM mal_banlist WHERE medium='{s[0]}' AND mal_id={s[1]}")
+        exists = await db_man.execute("SELECT * FROM mal_banlist WHERE medium=? AND mal_id=?", s)
 
         if not exists:
             await db_man.execute("INSERT INTO mal_banlist (medium, mal_id, anotd_source) "
-                                    f"VALUES ('{s[0]}', {s[1]}, 1)")
+                                 "VALUES (?, ?, 1)", s)
 
 
 async def rm_anotd_bl(medium, series, anilist_man, db_man):
     related_series, _ = await get_related_series(medium, series, anilist_man)
 
     for s in related_series:
-        await db_man.execute(f"DELETE FROM mal_banlist WHERE medium='{s[0]}' AND mal_id={s[1]} AND anotd_source=1")
+        await db_man.execute("DELETE FROM mal_banlist WHERE medium=? AND mal_id=? AND anotd_source=1", s)
 
-    await db_man.execute(f"DELETE FROM anotd_banlist WHERE medium='{medium}' AND mal_id={series}")
+    await db_man.execute("DELETE FROM anotd_banlist WHERE medium=? AND mal_id=?", (medium, series))

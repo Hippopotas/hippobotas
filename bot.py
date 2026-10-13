@@ -1,5 +1,6 @@
 import aiohttp
 import argparse
+import ast
 import asyncio
 import datetime
 import discord
@@ -13,6 +14,7 @@ import re
 import requests
 import shlex
 import time
+import traceback
 import websockets
 
 import common.constants as const
@@ -31,6 +33,8 @@ from trivia import check_answer
 from user import User
 
 PS_SOCKET = 'wss://sim3.psim.us/showdown/websocket'
+PS_LOGIN = 'https://play.pokemonshowdown.com/api/login'
+RECONNECT_DELAY = 5
 JOINLIST = [const.ANIME_ROOM,
             const.LEAGUE_ROOM,
             const.TCG_ROOM,
@@ -95,8 +99,10 @@ class Bot:
     def __init__(self):
         self.username = os.getenv('PS_USERNAME')
         self.password = os.getenv('PS_PASSWORD')
-        self.sucklist = pd.read_csv(const.SUCKFILE)
-        self.friendslist = json.load(open(const.FRIENDFILE))
+        self.sucklist = self.load_sucklist()
+        with open(const.FRIENDFILE) as f:
+            self.friendslist = json.load(f)
+        self.logged_in = False
 
         self.incoming = asyncio.Queue()
         self.outgoing = asyncio.Queue()
@@ -108,11 +114,9 @@ class Bot:
         self.allow_laddering = False
 
         self.typers = {}
-        self.wpms = pd.read_csv(const.WPMFILE, converters={'recent_runs': eval}).set_index('user')
+        self.wpms = pd.read_csv(const.WPMFILE, converters={'recent_runs': ast.literal_eval}).set_index('user')
         with open(const.SENTENCEFILE) as f:
-            for i, _ in enumerate(f):
-                pass
-            self.num_typing_sentences = i+1
+            self.num_typing_sentences = sum(1 for _ in f)
 
 
         self.roomdata_man = DatabaseManager(const.ROOMDATA_DB)
@@ -125,24 +129,36 @@ class Bot:
         self.mal_rooms = [const.ANIME_ROOM, const.PEARY_ROOM]
         self.steam_rooms = [const.VG_ROOM, const.PEARY_ROOM]
 
+        self.igdb_token = None
+        self.igdb_token_expire = 0
         self.refresh_igdb_token()
 
 
-    def __del__(self):
-        print('Deleted previous bot instance.')
+    @staticmethod
+    def load_sucklist():
+        '''
+        Loads the suck leaderboard, starting a fresh one if the file
+        is missing or unreadable.
+        '''
+        try:
+            sucklist = pd.read_csv(const.SUCKFILE)
+            if {'user', 'count'} <= set(sucklist.columns):
+                return sucklist
+            print(f'{const.SUCKFILE} is missing columns; starting a new suck list.')
+        except (FileNotFoundError, pd.errors.EmptyDataError) as e:
+            print(f'Could not read {const.SUCKFILE} ({e}); starting a new suck list.')
+
+        return pd.DataFrame([[const.TIMER_USER, 0.0]], columns=['user', 'count'])
 
 
-    def reconnect(self, restart=True):
+    def reconnect(self):
         '''
-        Wrapper for reconnect calls from within the bot.
+        Drops the current Showdown connection. The listener will
+        notice and open a fresh one.
         '''
-        print("Sleeping 5 before reconnecting.")
-        time.sleep(5)
-        for task in asyncio.all_tasks():
-            if task.get_name() == "listener":
-                task.cancel()
-                loop = asyncio.get_event_loop()
-                loop.create_task(self.listener(PS_SOCKET), name="listener")
+        print('Reconnecting to Showdown.')
+        if WS is not None:
+            asyncio.get_running_loop().create_task(WS.close())
 
 
     def refresh_igdb_token(self):
@@ -155,11 +171,13 @@ class Bot:
                    'client_secret': os.getenv('TWITCH_SECRET'),
                    'grant_type': 'client_credentials'}
 
-        r = requests.post('https://id.twitch.tv/oauth2/token', data=payload)
-
-        igdb_info = r.json()
-        self.igdb_token = igdb_info['access_token']
-        self.igdb_token_expire = time.time() + int(igdb_info['expires_in'])
+        try:
+            r = requests.post('https://id.twitch.tv/oauth2/token', data=payload, timeout=10)
+            igdb_info = r.json()
+            self.igdb_token = igdb_info['access_token']
+            self.igdb_token_expire = time.time() + int(igdb_info['expires_in'])
+        except (requests.RequestException, ValueError, KeyError) as e:
+            print(f'Could not get an IGDB token: {e!r}')
 
 
     def check_igdb_token(self):
@@ -220,7 +238,8 @@ class Bot:
 
             await asyncio.sleep(sleep_len)
             text = await birthday_text(self, automatic=True, room=ctx)
-            await self.outgoing.put(f'{ctx}|/adduhtml {text}')
+            if text:
+                await self.outgoing.put(f'{ctx}|/adduhtml {text}')
 
             new_time = time.time() + 60 * 60 * 6
             await self.roomdata_man.execute(f"UPDATE birthdays SET day={new_time} WHERE name='next_time' AND room='{ctx}'")
@@ -263,7 +282,10 @@ class Bot:
         if not self.users[true_user]['group']:
             await self.outgoing.put(f'|/cmd userdetails {true_user}')
 
-            await self.users[true_user]['event'].wait()
+            try:
+                await asyncio.wait_for(self.users[true_user]['event'].wait(), timeout=10)
+            except asyncio.TimeoutError:
+                print(f'No userdetails response for {true_user}.')
             self.users[true_user]['event'].clear()
 
         return self.users[true_user]
@@ -283,7 +305,8 @@ class Bot:
             await asyncio.sleep(sleep_len)
             # Potential race condition vs bot startup should
             # be fine given the above sleep delay.
-            for u in self.users:
+            # Copy, since commands can add users while this awaits.
+            for u in list(self.users):
                 self.users[u]['group'] = None
                 await self.get_userinfo(u)
 
@@ -298,8 +321,8 @@ class Bot:
         while True:
             to_delete = await self.roomdata_man.execute(query)
             for medium, mal_id in to_delete:
-                await self.roomdata_man.execute("DELETE FROM anotd_banlist WHERE "
-                                               f"medium='{medium}' AND mal_id='{mal_id}'")
+                await self.roomdata_man.execute("DELETE FROM anotd_banlist WHERE medium=? AND mal_id=?",
+                                                (medium, mal_id))
 
             await asyncio.sleep(24 * 60 * 60)
 
@@ -321,7 +344,7 @@ class Bot:
         with open(const.SENTENCEFILE) as f:
             for i, l in enumerate(f):
                 if i == idx:
-                    sentence = l[:-1]
+                    sentence = l.rstrip('\n')
                     break
 
         words = sentence.split(' ')
@@ -347,15 +370,24 @@ class Bot:
         Args:
             uri (str): websocket to connect to
         '''
-        try:
-            async with websockets.connect(uri) as ws:
-                # The same websocket is used to send info back.
-                global WS
-                WS = ws
-                async for msg in ws:
-                    await self.incoming.put(msg)
-        except:
-            self.reconnect()
+        global WS
+        while True:
+            try:
+                async with websockets.connect(uri, max_size=None) as ws:
+                    # The same websocket is used to send info back.
+                    WS = ws
+                    self.logged_in = False
+                    async for msg in ws:
+                        await self.incoming.put(msg)
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:
+                print(f'Showdown connection error: {e!r}')
+            finally:
+                WS = None
+
+            print(f'Disconnected from Showdown. Reconnecting in {RECONNECT_DELAY}s.')
+            await asyncio.sleep(RECONNECT_DELAY)
 
 
     async def interpreter(self):
@@ -370,7 +402,11 @@ class Bot:
             print('Message: ')
             print(msg.encode('utf-8'))
 
-            await self.message_handler(msg)
+            # One bad message must not stop the bot from handling the rest.
+            try:
+                await self.message_handler(msg)
+            except Exception:
+                traceback.print_exc()
 
 
     async def message_handler(self, msg):
@@ -383,7 +419,7 @@ class Bot:
 
         curr_room = ''
         broken = msg.split('\n')
-        if broken[0][0] == '>':
+        if broken[0].startswith('>'):
             curr_room = broken[0][1:]
 
         parts = msg.split('|')
@@ -397,42 +433,44 @@ class Bot:
         if parts[1] == 'queryresponse':
             if parts[2] == 'userdetails':
                 userinfo = json.loads(parts[3])
-                true_name = userinfo['id']
-                if 'group' in userinfo:
-                    self.users[true_name]['group'] = userinfo['group']
-                if userinfo['rooms']:
-                    self.users[true_name]['rooms'] = userinfo['rooms']
-                self.users[true_name]['event'].set()
+                true_name = userinfo['id'] if userinfo else ''
+                if true_name in self.users:
+                    if userinfo.get('group'):
+                        self.users[true_name]['group'] = userinfo['group']
+                    self.users[true_name]['rooms'] = userinfo.get('rooms') or {}
+                    self.users[true_name]['event'].set()
             else:
                 print(parts)
 
         # Managing room userlists
-        if parts[1] == 'init' and 'chat' in parts[2]:
-            userlist = parts[6].split(',')[1:]
-            for user in userlist:
-                rank = user[0]
-                username = user[1:].split('@')[0]
-                self.roomlist[curr_room].add_user(username, rank)
+        room_obj = self.roomlist.get(curr_room)
+        if parts[1] == 'init' and 'chat' in parts[2] and room_obj:
+            room_obj.users = []
+            for line in broken:
+                if line.startswith('|users|'):
+                    for user in line[len('|users|'):].split(',')[1:]:
+                        rank = user[0]
+                        username = user[1:].split('@')[0]
+                        room_obj.add_user(username, rank)
 
-        if parts[1] == 'J' and not 'battle-' in parts[0]:
-            user = parts[2]
+        if parts[1] in ('J', 'j', 'join') and room_obj:
+            user = parts[2].rstrip('\n')
             rank = user[0]
             username = user[1:].split('@')[0]
-            self.roomlist[curr_room].add_user(username, rank)
+            room_obj.add_user(username, rank)
 
-        elif parts[1] == 'L' and not 'battle-' in parts[0]:
-            user = parts[2]
-            rank = user[0]
+        elif parts[1] in ('L', 'l', 'leave') and room_obj:
+            user = parts[2].rstrip('\n')
             username = user[1:].split('@')[0]
-            self.roomlist[curr_room].remove_user(username)
+            room_obj.remove_user(username)
 
-        elif parts[1] == 'N' and not 'battle-' in parts[0]:
-            new_user = parts[2]
+        elif parts[1] in ('N', 'n', 'name') and room_obj:
+            new_user = parts[2].rstrip('\n')
             rank = new_user[0]
             username = new_user[1:].split('@')[0]
-            old_user = parts[3]
-            self.roomlist[curr_room].remove_user(old_user)
-            self.roomlist[curr_room].add_user(username, rank)
+            old_user = parts[3].strip()
+            room_obj.remove_user(old_user)
+            room_obj.add_user(username, rank)
 
         # Battles
         if parts[1] == 'updatesearch':
@@ -515,7 +553,7 @@ class Bot:
                 wpminfo = pd.DataFrame([[true_caller, speed, speed, [speed]]],
                                        columns=['user', 'top_wpm', 'avg_wpm', 'recent_runs'])
                 wpminfo = wpminfo.set_index('user')
-                self.wpms = self.wpms.append(wpminfo)
+                self.wpms = pd.concat([self.wpms, wpminfo])
                 msg += 'Set a new record!'
             else:
                 current_best = wpminfo['top_wpm']
@@ -539,7 +577,7 @@ class Bot:
             await self.outgoing.put(f'|/w {true_caller}, {msg}')
 
         # Function calls from chat
-        elif (parts[1] == 'c:' or parts[1] == 'pm') and parts[4][0] == ']':
+        elif (parts[1] == 'c:' or parts[1] == 'pm') and parts[4].startswith(']'):
             is_pm = False
             caller = parts[3]
             if parts[1] == 'pm':
@@ -549,11 +587,7 @@ class Bot:
 
         # Trivia guesses
         elif parts[1] == 'c:':
-            t_active = False
-            try:
-                t_active = self.roomlist[curr_room].trivia.active
-            except AttributeError:
-                pass
+            t_active = room_obj is not None and room_obj.trivia.active
 
             if t_active:
                 msg = ''
@@ -699,7 +733,7 @@ class Bot:
             return
 
         emote_list = await self.roomdata_man.execute("SELECT name, url, times_used FROM emotes "
-                                                        f"WHERE room='{room}'")
+                                                     "WHERE room=?", (room,))
 
         if not emote_list:
             return
@@ -713,9 +747,8 @@ class Bot:
         for pe in possible_emotes[1:-1]:
             emote = pe.lower()
             if emote in emote_dict:
-                await self.roomdata_man.execute("UPDATE emotes SET "
-                                                f"times_used={emote_dict[emote]['times_used']+1} "
-                                                f"WHERE room='{room}' AND name='{emote}'")
+                await self.roomdata_man.execute("UPDATE emotes SET times_used=times_used+1 "
+                                                "WHERE room=? AND name=?", (room, emote))
 
                 uhtml = gen_uhtml_img_code(emote_dict[emote]['url'], height_resize=50, alt=emote)
                 await self.outgoing.put(f'{room}|/adduhtml hippo-{emote}, {uhtml}')
@@ -728,18 +761,28 @@ class Bot:
         Args:
             keyword (str): The challstr presented by showdown via websocket
         '''
-        details = { 'act': 'login',
-                    'name': self.username,
-                    'pass': self.password,
-                    'challstr': keyword
-                    }
+        details = {'name': self.username,
+                   'pass': self.password,
+                   'challstr': keyword}
 
         async with aiohttp.ClientSession() as session:
-            async with session.post('http://play.pokemonshowdown.com/api/login', json=details) as r:
+            async with session.post(PS_LOGIN, data=details) as r:
                 resp = await r.text()
-                assertion = json.loads(resp[1:])['assertion']
-                await self.outgoing.put('|/trn ' + self.username + ',0,'  + str(assertion))
-                print('Sending assertion')
+
+        # Response is prefixed with ']' to prevent JSON hijacking.
+        try:
+            login_info = json.loads(resp[1:])
+        except ValueError:
+            print(f'Unexpected login response: {resp[:200]}')
+            return
+
+        assertion = login_info.get('assertion', '')
+        if not assertion or assertion.startswith(';;'):
+            print(f"Login failed: {login_info.get('actionerror') or assertion}")
+            return
+
+        await self.outgoing.put('|/trn ' + self.username + ',0,'  + str(assertion))
+        print('Sending assertion')
 
 
     async def login_check(self, name, logged_in):
@@ -752,15 +795,18 @@ class Bot:
         '''
         print("Logged in as: " + name)
 
-        if not logged_in:
-            print("Not logged in.")
-            self.reconnect()
+        # Showdown sends '0' as a guest before the login goes through, and
+        # resends updateuser on other changes (e.g. avatar), so only act once.
+        if logged_in.strip() != '1' or self.logged_in:
+            return
 
-        if re.sub(r'\W+', '', name) == re.sub(r'\W+', '', self.username):
+        if find_true_name(name.split('@')[0]) == find_true_name(self.username):
+            self.logged_in = True
             await self.outgoing.put('|/avatar 97')
 
             for room in JOINLIST:
-                self.roomlist[room] = Room(room, self)
+                if room not in self.roomlist:
+                    self.roomlist[room] = Room(room, self)
                 await self.outgoing.put('|/join ' + room)
 
 
@@ -829,9 +875,9 @@ class Bot:
 
         Returns:
         '''
-        cover = game_info['cover']
+        cover = game_info.get('cover')
         name = game_info['name']
-        summary = game_info['summary']
+        summary = game_info.get('summary', '')
         url = game_info['url']
 
         if ctx == 'pm':
@@ -848,9 +894,9 @@ class Bot:
             summary += '...'
 
         platform_rds = {}
-        for rd in game_info['release_dates']:
+        for rd in game_info.get('release_dates', []):
             platform = ''
-            for p in game_info['platforms']:
+            for p in game_info.get('platforms', []):
                 if p['id'] == rd['platform']:
                     try:
                         platform = p['abbreviation']
@@ -861,7 +907,7 @@ class Bot:
             platform_rds[platform] = 'TBD'
             if 'date' in rd:
                 unix_ts = rd['date']
-                year = datetime.datetime.utcfromtimestamp(unix_ts).strftime('%Y')
+                year = datetime.datetime.fromtimestamp(unix_ts, datetime.timezone.utc).strftime('%Y')
 
                 platform_rds[platform] = year
 
@@ -870,7 +916,7 @@ class Bot:
             rd = platform_rds[p]
             rd_str += f'{p} ({rd}); '
 
-        cover = 'https:' + cover['url']
+        cover = 'https:' + cover['url'] if cover else const.IMG_NOT_FOUND
 
         if rd_str:
             rd_str = rd_str[:-2]
@@ -909,6 +955,8 @@ class Bot:
             return
 
         command = command[1:].split()
+        if not command:
+            return
 
         # Aliases
         if command[0] == 'rand_song':
@@ -998,14 +1046,15 @@ class Bot:
 
         if cmd_obj: # Remove when all commands are refactored
             msg = await cmd_obj.evaluate()
+            if not msg:
+                return
 
             if cmd_obj.pm_response:
                 msg = '|/w {}, '.format(true_caller) + msg
             else:
                 msg = f'{cmd_obj.room}|{msg}'
 
-            if msg:
-                await self.outgoing.put(msg)
+            await self.outgoing.put(msg)
             return
 
         # Typing test
@@ -1048,18 +1097,20 @@ class Bot:
             if args:
                 args.username = find_true_name(' '.join(args.username))
             else:
-                await self.outgoing.put(room + '| Incorrect formatting.')
+                msg = 'Incorrect formatting.'
+                if pm:
+                    msg = f'/w {true_caller}, {msg}'
+                await self.outgoing.put(f'{room}|{msg}')
                 return
 
             steam_list = pd.read_csv(const.STEAMFILE)
             existing_user = steam_list[steam_list['user'] == args.username]
-            if not (User.compare_ranks(caller[0], '+')):
-                ctx = 'pm'
             if existing_user.empty:
                 msg = 'This user does not have a Steam set. Please use ]addsteam to set a valid account. Make sure to use the URL ID and not the Steam username.'
             else:
+                # Unvoiced users get the response in PMs.
                 ctx = room
-                if pm:
+                if pm or not User.compare_ranks(caller[0], '+'):
                     ctx = 'pm'
                 steam_user = existing_user.iloc[0]['steam']
 
@@ -1078,7 +1129,7 @@ class Bot:
             if len(command) < 2:
                 msg = 'Please specify a game to search for.'
             else:
-                search = ' '.join(command[1:])
+                search = ' '.join(command[1:]).replace('"', '')
                 self.check_igdb_token()
 
                 headers = {'Client-ID': os.getenv('TWITCH_ID'),
@@ -1125,11 +1176,11 @@ class Bot:
                 if suckinfo.empty:
                     suckinfo = pd.DataFrame([[true_caller, 0]],
                                             columns=['user', 'count'])
-                    self.sucklist = self.sucklist.append(suckinfo)
+                    self.sucklist = pd.concat([self.sucklist, suckinfo], ignore_index=True)
 
                 # There's a global cooldown of a random number between
-                # 15 and 90 minutes.
-                end_time = self.sucklist.loc[self.sucklist['user'] == const.TIMER_USER, 'count'][0]
+                # 5 and 30 minutes.
+                end_time = self.sucklist.loc[self.sucklist['user'] == const.TIMER_USER, 'count'].iloc[0]
                 if time.time() > end_time:
                     self.sucklist.loc[self.sucklist['user'] == true_caller, 'count'] += 1
                     scount = int(suckinfo['count'].iat[0] + 1)
@@ -1185,7 +1236,7 @@ class Bot:
 
             elif (command[1] == 'stop' or command[1] =='end') and User.compare_ranks(caller[0], '+'):
                 if trivia_status:
-                    await self.roomlist[room].trivia.end()
+                    await self.roomlist[room].trivia.stop()
                     return
                 else:
                     msg = 'No trivia game in progress.'
@@ -1399,23 +1450,26 @@ class Bot:
 
         Args:
         '''
-        try:
-            while True:
-                msg = await self.outgoing.get()
+        while True:
+            msg = await self.outgoing.get()
 
-                # AFD
-                if not msg.startswith('|') and random.random() < 0.0001:
-                    room = msg.split('|')[0]
-                    url = 'https://i.imgur.com/z4nlXPW.png'
-                    uhtml = gen_uhtml_img_code(url, height_resize=50, alt='worryclown')
-                    msg = f'{room}|/adduhtml hippo-worryclown, {uhtml}'
+            # AFD
+            if not msg.startswith('|') and random.random() < 0.0001:
+                room = msg.split('|')[0]
+                url = 'https://i.imgur.com/z4nlXPW.png'
+                uhtml = gen_uhtml_img_code(url, height_resize=50, alt='worryclown')
+                msg = f'{room}|/adduhtml hippo-worryclown, {uhtml}'
 
-                print('Sending: ')
-                print(msg)
+            print('Sending: ')
+            print(msg)
+            if WS is None:
+                print('Not connected; dropping message.')
+                continue
+            try:
                 await WS.send(msg)
-                await asyncio.sleep(0.1)
-        except:
-            self.reconnect()
+            except websockets.exceptions.ConnectionClosed as e:
+                print(f'Could not send, connection closed: {e!r}')
+            await asyncio.sleep(0.1)
 
 
 class DiscordBot:
@@ -1435,35 +1489,37 @@ class DiscordBot:
         self.bot = bot
     
     async def start(self):
-        await self.bot.start(os.getenv('DISCORD_TOKEN'))
+        # Discord being unavailable shouldn't take the Showdown bot down with it.
+        try:
+            await self.bot.start(os.getenv('DISCORD_TOKEN'))
+        except Exception:
+            traceback.print_exc()
 
 
 BOT = None
 DISCORD_BOT = None
-def start_bot():
+async def start_bot():
     global BOT
     global DISCORD_BOT
 
-    dotenv.load_dotenv()
-    loop = asyncio.get_event_loop()
-
-    loop.set_debug(True)
-    if BOT:
-        BOT = None
     BOT = Bot()
-    if DISCORD_BOT:
-        DISCORD_BOT = None
-    DISCORD_BOT = DiscordBot()
 
-    asyncio.set_event_loop(loop)
-    loop.create_task(BOT.listener(PS_SOCKET), name="listener")
-    loop.create_task(BOT.interpreter())
-    loop.create_task(BOT.sender())
-    loop.create_task(BOT.start_repeats())
-    loop.create_task(DISCORD_BOT.start())
-    loop.run_forever()
+    tasks = [asyncio.create_task(BOT.listener(PS_SOCKET), name='listener'),
+             asyncio.create_task(BOT.interpreter(), name='interpreter'),
+             asyncio.create_task(BOT.sender(), name='sender'),
+             asyncio.create_task(BOT.start_repeats(), name='start-repeats')]
+
+    if os.getenv('DISCORD_TOKEN'):
+        DISCORD_BOT = DiscordBot()
+        tasks.append(asyncio.create_task(DISCORD_BOT.start(), name='discord'))
+    else:
+        print('DISCORD_TOKEN not set; skipping the Discord bot.')
+
+    # Runs until the process is stopped.
+    await asyncio.gather(*tasks)
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
+    dotenv.load_dotenv()
 
-    start_bot()
+    asyncio.run(start_bot())

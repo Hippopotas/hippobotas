@@ -9,7 +9,7 @@ from common.utils import gen_uhtml_img_code
 async def display_mtg_card(putter, card):
     msg = ''
     async with aiohttp.ClientSession(trust_env=True) as session:
-        async with session.get(f'{const.MTG_API}{card}') as r:
+        async with session.get(const.MTG_API, params={'q': card}) as r:
             resp = await r.text()
             all_cards = json.loads(resp)
 
@@ -36,12 +36,17 @@ async def display_mtg_card(putter, card):
 async def display_ptcg_card(putter, card):
     msg = ''
     async with aiohttp.ClientSession(trust_env=True) as session:
-        async with session.get(f'{const.PTCG_API}{card}') as r:
+        # Quoted so multi-word names (e.g. "charizard ex") search as one name.
+        query = card.replace('"', '')
+        async with session.get(const.PTCG_API, params={'q': f'name:"{query}"', 'pageSize': 1}) as r:
             resp = await r.text()
-            all_cards = json.loads(resp)
+            try:
+                all_cards = json.loads(resp)
+            except ValueError:
+                all_cards = {}
 
             if r.status != 200:
-                msg = all_cards['message']
+                msg = all_cards.get('error', {}).get('message', f'Pokemon TCG API returned {r.status}.')
 
             elif not all_cards['data']:
                 msg = 'No cards found with the given name.'
@@ -60,7 +65,7 @@ async def display_ptcg_card(putter, card):
 async def display_ygo_card(putter, card):
     msg = ''
     async with aiohttp.ClientSession(trust_env=True) as session:
-        async with session.get(f'{const.YGO_API}{card}') as r:
+        async with session.get(const.YGO_API, params={'fname': card}) as r:
             resp = await r.text()
             all_cards = json.loads(resp)
 

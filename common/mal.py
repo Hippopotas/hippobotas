@@ -17,7 +17,10 @@ async def jikan_user_info(username, jikan_man):
         async with aiohttp.ClientSession() as session:
             url = f'{const.JIKAN_API}users/{username}/full'
             async with session.get(url) as r:
-                user_data = await r.json()
+                user_data = await r.json(content_type=None)
+
+                if r.status != 200 or not user_data or 'data' not in user_data:
+                    raise LookupError(f'Jikan returned {r.status} for {username}')
 
                 return user_data['data']
 
@@ -40,14 +43,17 @@ class MalManager(ApiManager):
         async with self.lock():
             async with aiohttp.ClientSession() as session:
                 async with session.get(url, headers={'X-MAL-CLIENT-ID': os.getenv('MAL_ID')}, **kwargs) as r:
-                    request_data = await r.json()
+                    request_data = await r.json(content_type=None)
 
-                    return request_data
+                    if r.status != 200:
+                        print(f'MAL API returned {r.status} for {url}: {request_data}')
+
+                    return request_data or {}
 
 
     async def mal_of_ps(self, ps_user):
         mal_user = await self.db_man.execute("SELECT mal_username FROM mal_users "
-                                            f"WHERE ps_username='{ps_user}'")
+                                             "WHERE ps_username=?", (ps_user,))
         if mal_user:
             return mal_user[0][0]
         else:
@@ -72,9 +78,9 @@ class MalManager(ApiManager):
             curr_url = f'{const.MAL_API}users/{mal_user}/animelist?limit=1000&status={status}'
             while curr_url:
                 series_data = await self.api_request(curr_url)
-                for series in series_data['data']:
+                for series in series_data.get('data', []):
                     full_list.append(series['node']['id'])
-                if series_data['paging'] and 'next' in series_data['paging']:
+                if series_data.get('paging') and 'next' in series_data['paging']:
                     curr_url = series_data['paging']['next']
                 else:
                     break
@@ -90,9 +96,9 @@ class MalManager(ApiManager):
             curr_url = f'{const.MAL_API}users/{mal_user}/mangalist?limit=1000&status={status}'
             while curr_url:
                 series_data = await self.api_request(curr_url)
-                for series in series_data['data']:
+                for series in series_data.get('data', []):
                     full_list.append(series['node']['id'])
-                if series_data['paging'] and 'next' in series_data['paging']:
+                if series_data.get('paging') and 'next' in series_data['paging']:
                     curr_url = series_data['paging']['next']
                 else:
                     break
@@ -102,10 +108,12 @@ class MalManager(ApiManager):
 
     async def update_user(self, ps_user, force=False):
         mal_user = await self.mal_of_ps(ps_user)
+        if not mal_user:
+            return
         table_name = f'mal_list_{find_true_name(mal_user)}'
 
         table_exists = await self.db_man.execute("SELECT name FROM sqlite_master "
-                                                f"WHERE type='table' AND name='{table_name}'")
+                                                 "WHERE type='table' AND name=?", (table_name,))
         if not table_exists:
             await self.db_man.execute(f"CREATE TABLE {table_name} (medium VARCHAR NOT NULL, "
                                                                   "mal_id INTEGER NOT NULL, "
@@ -113,25 +121,28 @@ class MalManager(ApiManager):
 
         # Do not update if cache is younger than 1 day
         last_updated = await self.db_man.execute("SELECT last_updated FROM mal_users "
-                                                f"WHERE mal_username='{mal_user}'")
+                                                 "WHERE mal_username=?", (mal_user,))
+        # CURRENT_TIMESTAMP is stored in UTC.
         update_time = datetime.datetime.strptime(last_updated[0][0], '%Y-%m-%d %H:%M:%S')
+        now = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
 
-        if datetime.datetime.now() - update_time < datetime.timedelta(days=1) and not force:
+        if now - update_time < datetime.timedelta(days=1) and not force:
             return
 
         animelist = await self.animelist(ps_user)
         mangalist = await self.mangalist(ps_user)
 
-        values = [f"('anime', '{mal_id}')" for mal_id in animelist]
-        values += [f"('manga', '{mal_id}')" for mal_id in mangalist]
+        values = [('anime', int(mal_id)) for mal_id in animelist]
+        values += [('manga', int(mal_id)) for mal_id in mangalist]
 
         if values:
+            placeholders = ', '.join(['(?, ?)'] * len(values))
             await self.db_man.execute(f"INSERT OR IGNORE INTO {table_name} (medium, mal_id) "
-                                      f"VALUES {', '.join(values)}")
+                                      f"VALUES {placeholders}",
+                                      [v for pair in values for v in pair])
 
-        escaped_mal_user = mal_user.replace("'", "''")
         await self.db_man.execute("UPDATE mal_users SET last_updated=CURRENT_TIMESTAMP "
-                                 f"WHERE mal_username='{escaped_mal_user}'")
+                                  "WHERE mal_username=?", (mal_user,))
 
 
     async def user_rand_series(self, ps_user, media, anotd=False):
@@ -143,9 +154,11 @@ class MalManager(ApiManager):
         table_name = f'mal_list_{find_true_name(mal_user)}'
 
         db_query = f"SELECT * FROM {table_name}"
+        db_params = ()
         if len(media) == 1:
-            db_query += f" WHERE medium='{media[0]}'"
-        all_series = await self.db_man.execute(db_query)
+            db_query += " WHERE medium=?"
+            db_params = (media[0],)
+        all_series = await self.db_man.execute(db_query, db_params)
 
         series = None
         is_nsfw = True
@@ -159,7 +172,8 @@ class MalManager(ApiManager):
             # Take out if anotd
             if anotd:
                 bl = await self.db_man.execute("SELECT * FROM mal_banlist "
-                                              f"WHERE medium='{temp_series[0]}' AND mal_id={temp_series[1]} AND anotd_source=1")
+                                               "WHERE medium=? AND mal_id=? AND anotd_source=1",
+                                               (temp_series[0], temp_series[1]))
                 if bl:
                     is_nsfw = True
 
@@ -169,7 +183,7 @@ class MalManager(ApiManager):
         msg = f'No valid series found for {ps_user}'
         if series:
             series_data = await self.api_request(f'{const.MAL_API}{series[0]}/{series[1]}')
-            msg = f"rolled {series_data['title']}"
+            msg = f"rolled {series_data.get('title', f'{series[0]} #{series[1]}')}"
 
         asyncio.create_task(self.update_user(ps_user))
 
@@ -177,12 +191,9 @@ class MalManager(ApiManager):
 
 
     async def set_user(self, ps_user, mal_user, jikan_man):
-        # Sqlite escape
-        escaped_mal_user = mal_user.replace("'", "''")
-
         try:
             await jikan_user_info(mal_user, jikan_man)
-        except:
+        except Exception:
             return f"Could not find {mal_user} on MAL."
 
         current_user = await self.mal_of_ps(ps_user)
@@ -190,17 +201,18 @@ class MalManager(ApiManager):
             return f"{ps_user}'s MAL is already set to {mal_user}."
         # Can change to actual UPSERT when sqlite3 gets updated to have it
         elif current_user:
-            await self.db_man.execute(f"UPDATE mal_users SET mal_username='{escaped_mal_user}', "
-                                                            "last_updated=CURRENT_TIMESTAMP "
-                                      f"WHERE ps_username='{ps_user}'")
+            await self.db_man.execute("UPDATE mal_users SET mal_username=?, "
+                                      "last_updated=CURRENT_TIMESTAMP WHERE ps_username=?",
+                                      (mal_user, ps_user))
 
             cu_rows = await self.db_man.execute("SELECT COUNT(*) FROM mal_users "
-                                               f"WHERE mal_username='{current_user}'")
+                                                "WHERE mal_username=?", (current_user,))
             if cu_rows[0][0] == 0:
-                await self.db_man.execute(f"DROP TABLE mal_{current_user}")
+                await self.db_man.execute(f"DROP TABLE IF EXISTS mal_list_{find_true_name(current_user)}",
+                                          allow_drop=True)
         else:
             await self.db_man.execute("INSERT INTO mal_users (ps_username, mal_username) "
-                                     f"VALUES ('{ps_user}', '{escaped_mal_user}')")
+                                      "VALUES (?, ?)", (ps_user, mal_user))
 
         asyncio.create_task(self.update_user(ps_user, force=True))
 
@@ -212,7 +224,11 @@ class MalManager(ApiManager):
         if not mal_user:
             return f"{ps_user} does not have a linked MAL account."
 
-        user_data = await jikan_user_info(mal_user, jikan_man) if mal_user else (None, None)
+        try:
+            user_data = await jikan_user_info(mal_user, jikan_man)
+        except Exception as e:
+            print(e)
+            return f"Could not load {mal_user}'s MAL profile right now."
 
         # Set image
         img_url = const.IMG_NOT_FOUND

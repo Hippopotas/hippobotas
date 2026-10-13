@@ -1,5 +1,6 @@
 import aiohttp
 import asyncio
+import html
 import json
 import math
 import pandas as pd
@@ -99,6 +100,8 @@ def check_answer(guess, answers, exact=False):
 class TriviaGame:
     def __init__(self, room, bot):
         self.active = False
+        self.stopping = False
+        self.run_task = None
         self.q_active = asyncio.Event()
         self.correct = asyncio.Event()
         self.answers = []
@@ -115,7 +118,7 @@ class TriviaGame:
 
     async def autoskip(self, skip_time):
         answer = self.answers[0]
-        while self.active and self.answers[0] == answer:
+        while self.active and self.answers and self.answers[0] == answer:
             await self.q_active.wait()
             self.q_active.clear()
 
@@ -133,7 +136,7 @@ class TriviaGame:
         curr_output = []
         remaining = iter(question.split(' '))
         done = False
-        while self.active and self.answers[0] == answer:
+        while self.active and self.answers and self.answers[0] == answer:
             for _ in range(1):
                 try:
                     word = next(remaining)
@@ -159,7 +162,8 @@ class TriviaGame:
             return
         
         if (time.time() - timer['score'].iloc[0]) > length:
-            timer.loc[timer['user'] == const.TIMER_USER, 'score'] = time.time()
+            timer = timer.copy()
+            timer['score'] = time.time()
             self.scoreboard = timer
 
     async def run(self, n=10, diff=BASE_DIFF, categories=['all'],
@@ -170,6 +174,7 @@ class TriviaGame:
             return
 
         self.active = True
+        self.run_task = asyncio.current_task()
         self.anagrams = anagrams
         self.quizbowl = quizbowl
         self.reset_scoreboard()
@@ -183,36 +188,71 @@ class TriviaGame:
         self.questions.excludecats = excludecats
         self.questions.by_rating = by_rating
 
-        asyncio.create_task(self.questions.gen_list(n, self.bot, quizbowl=quizbowl, is_dex=is_dex, anagrams=anagrams),
-                            name='tquestions-{}'.format(self.room))
+        gen_task = asyncio.create_task(self.questions.gen_list(n, self.bot, quizbowl=quizbowl,
+                                                               is_dex=is_dex, anagrams=anagrams),
+                                       name='tquestions-{}'.format(self.room))
 
-        for _ in range(n):
-            await asyncio.sleep(5)
+        try:
+            for _ in range(n):
+                await asyncio.sleep(5)
 
-            curr_question = await self.questions.questions.get()
-            self.answers = curr_question[1]
+                curr_question = await self.next_question(gen_task)
+                if curr_question is None:
+                    await self.bot.outgoing.put(f'{self.room}|Could not generate any more questions.')
+                    break
+                self.answers = curr_question[1]
 
-            if quizbowl:
-                asyncio.create_task(self.quizbowl_question(curr_question[0], autoskip))
-            else:
-                if autoskip:
-                    asyncio.create_task(self.autoskip(autoskip))
+                if quizbowl:
+                    asyncio.create_task(self.quizbowl_question(curr_question[0], autoskip))
+                else:
+                    if autoskip:
+                        asyncio.create_task(self.autoskip(autoskip))
 
-                await self.bot.outgoing.put(f'{self.room}|{curr_question[0]}')
+                    await self.bot.outgoing.put(f'{self.room}|{curr_question[0]}')
 
-            self.q_active.set()
+                self.q_active.set()
 
-            await self.correct.wait()
-            self.correct.clear()
+                await self.correct.wait()
+                self.correct.clear()
+        except asyncio.CancelledError:
+            gen_task.cancel()
+            if not self.stopping:
+                self.questions = QuestionList(self.room, self.bot)
+                self.answers = []
+                self.active = False
+                await self.bot.outgoing.put(f'{self.room}|Trivia could not be run with those settings.')
+            raise
 
+        gen_task.cancel()
         await self.end()
+
+    async def next_question(self, gen_task):
+        '''
+        Waits for the next question, or returns None if the generator
+        finished (or crashed) without producing one.
+        '''
+        get_task = asyncio.ensure_future(self.questions.questions.get())
+        done, _ = await asyncio.wait([get_task, gen_task], return_when=asyncio.FIRST_COMPLETED)
+        if get_task in done:
+            return get_task.result()
+
+        if not gen_task.cancelled() and gen_task.exception():
+            print(f'Trivia question generation failed in {self.room}: {gen_task.exception()!r}')
+
+        # The generator may have queued a final question as it finished.
+        if not self.questions.questions.empty():
+            get_task.cancel()
+            return self.questions.questions.get_nowait()
+
+        get_task.cancel()
+        return None
 
     def update_scores(self, user):
         user_pts = self.scoreboard[self.scoreboard['user'] == user]
 
         if user_pts.empty:
             new_user = pd.DataFrame([[user, 1]], columns=['user', 'score'])
-            self.scoreboard = self.scoreboard._append(new_user)
+            self.scoreboard = pd.concat([self.scoreboard, new_user], ignore_index=True)
         else:
             self.scoreboard.loc[self.scoreboard['user'] == user, 'score'] += 1
 
@@ -232,6 +272,20 @@ class TriviaGame:
         await self.bot.outgoing.put(f"{self.room}|/adduhtml {leaderboard_uhtml(self.leaderboard(), t_title)}")
 
         self.active = False
+
+    async def stop(self):
+        '''
+        Ends a running game early. The run loop is cancelled so that it
+        doesn't keep consuming questions meant for the next game.
+        '''
+        self.stopping = True
+        try:
+            if self.run_task and not self.run_task.done():
+                self.run_task.cancel()
+            self.answers = []
+            await self.end()
+        finally:
+            self.stopping = False
 
     async def skip(self, putter):
         await putter(self.room + '|' + '/adduhtml {}, <center>Question skipped.</center>'.format(UHTML_NAME))
@@ -320,7 +374,7 @@ class QuestionList:
         return False
 
     def check_for_jpg(self, url):
-        r = requests.get(url)
+        r = requests.head(url, timeout=10)
         if r.status_code != 200:
             return url[:-3] + 'jpg'
         return url
@@ -458,7 +512,7 @@ class QuestionList:
         while not all_series:
             async with anilist_man.lock():
                 async with session.post(const.ANILIST_API, json={'query': query, 'variables': roll_query_vars}) as r:
-                    resp = await r.json()
+                    resp = await r.json(content_type=None)
 
                     if r.status != 200:
                         for task in asyncio.all_tasks():
@@ -490,10 +544,13 @@ class QuestionList:
 
     async def gen_am_question(self, session, anilist_man, anagrams=False):
         base = await self.gen_am_base(session, anilist_man)
+        if base is None:
+            return
 
-        print(base)
         while not base['id'] or self.duplicate_check(base['id']) or not base['img_url']:
             base = await self.gen_am_base(session, anilist_man)
+            if base is None:
+                return
 
         self.q_bases.append(base['id'])
 
@@ -511,8 +568,13 @@ class QuestionList:
 
     async def gen_am_qbowl_question(self, session, anilist_man):
         base = await self.gen_am_base(session, anilist_man)
-        while self.duplicate_check(base['id']) or not base['description']:
+        if base is None:
+            return
+
+        while not base['id'] or self.duplicate_check(base['id']) or not base['description']:
             base = await self.gen_am_base(session, anilist_man)
+            if base is None:
+                return
 
         self.q_bases.append(base['id'])
 
@@ -550,16 +612,29 @@ class QuestionList:
                 if not self.duplicate_check(series_info['id']):
                     series_id = series_info['id']
 
-                    answers = [series_info['attributes']['title']['en']]
+                    answers = list(series_info['attributes']['title'].values())
                     for title in series_info['attributes']['altTitles']:
-                        if len(find_true_name(title['en'])) > 0:
-                            answers.append(title['en'])
+                        for lang in ('en', 'ja-ro'):
+                            if len(find_true_name(title.get(lang, ''))) > 0:
+                                answers.append(title[lang])
 
-        async with session.get(f'{const.DEX_API}cover', params={'manga[]': [series_id]}) as r:
-            covers = await r.json()
+                    if not answers:
+                        series_id = ''
 
-            cover_info = random.choice(covers['data'])
-            cover_id = cover_info['attributes']['fileName']
+            if not series_id:
+                continue
+
+            async with session.get(f'{const.DEX_API}cover', params=[('manga[]', series_id)]) as r:
+                covers = await r.json()
+
+                if r.status != 200 or not covers.get('data'):
+                    series_id = ''
+                    continue
+
+                cover_info = random.choice(covers['data'])
+                cover_id = cover_info['attributes']['fileName']
+
+        self.q_bases.append(series_id)
 
         img_url = f'https://uploads.mangadex.org/covers/{series_id}/{cover_id}.256.jpg'
         img_uhtml = gen_uhtml_img_code(img_url, height_resize=PIC_SIZE)
@@ -573,7 +648,7 @@ class QuestionList:
             qtypes = [c for c in const.LEAGUE_CATS if c in self.categories]
 
         if self.excludecats:
-            qtypes = const.LEAGUE_CATS - qtypes
+            qtypes = [c for c in (qtypes or const.LEAGUE_CATS) if c not in self.excludecats]
 
         if len(qtypes) == 0:
             qtypes = const.LEAGUE_CATS
@@ -589,7 +664,7 @@ class QuestionList:
         if data['qtype'] == 'items':
             base = {k:data[k] for k in ('qtype', 'item')}
         else:
-            async with session.get(const.DDRAGON_API + 'champion/{}.json'.format(data['champ'])) as r:
+            async with session.get(data['api'] + 'champion/{}.json'.format(data['champ'])) as r:
                 resp = await r.text()
                 data['champ_data'] = json.loads(resp)['data'][data['champ']]
 
@@ -604,13 +679,23 @@ class QuestionList:
         return data, base
         
     async def gen_lol_question(self, session):
-        data = {'all_champs': {}, 'champ': '', 'champ_data': {}, 'all_items': {}, 'item': {}}
+        data = {'all_champs': {}, 'champ': '', 'champ_data': {}, 'all_items': {}, 'item': {},
+                'api': const.DDRAGON_API, 'img': const.DDRAGON_IMG}
 
-        async with session.get(const.DDRAGON_API + 'champion.json') as r:
+        # Use the current patch so new champions/items are included.
+        try:
+            async with session.get(const.DDRAGON_VERSIONS) as r:
+                version = (await r.json())[0]
+            data['api'] = data['api'].replace(const.DDRAGON_VERSION, version)
+            data['img'] = data['img'].replace(const.DDRAGON_VERSION, version)
+        except Exception as e:
+            print(f'Could not get latest Data Dragon version: {e!r}')
+
+        async with session.get(data['api'] + 'champion.json') as r:
             resp = await r.text()
             data['all_champs'] = json.loads(resp)['data']
         
-        async with session.get(const.DDRAGON_API + 'item.json') as r:
+        async with session.get(data['api'] + 'item.json') as r:
             resp = await r.text()
             data['all_items'] = json.loads(resp)['data']
         data, base = await self.gen_lol_base(session, data)
@@ -620,7 +705,7 @@ class QuestionList:
         self.q_bases.append(base)
 
         if data['qtype'] == 'items':
-            img_url = const.DDRAGON_IMG + 'item/{}.png'.format(data['item'])
+            img_url = data['img'] + 'item/{}.png'.format(data['item'])
             img_url = gen_uhtml_img_code(self.check_for_jpg(img_url))
             await self.questions.put(['/adduhtml {}, {}'.format(UHTML_NAME, img_url),
                                       [data['all_items'][data['item']]['name']]])
@@ -631,7 +716,7 @@ class QuestionList:
                     skin_name = skin['name'] if skin['name'] != 'default' else data['champ_data']['name']
                     break
 
-            img_url = const.DDRAGON_SPL + '{}_{}.png'.format(data['champ'], data['cval'])
+            img_url = const.DDRAGON_SPL + '{}_{}.jpg'.format(data['champ'], data['cval'])
             img_url = gen_uhtml_img_code(self.check_for_jpg(img_url))
             await self.questions.put(['/adduhtml {}, {}'.format(UHTML_NAME, img_url),
                                       [skin_name]])
@@ -639,13 +724,13 @@ class QuestionList:
             ability = {}
             if data['cval'] == 0:
                 ability = data['champ_data']['passive']
-                img_url = const.DDRAGON_IMG + 'passive/{}'.format(ability['image']['full'])
+                img_url = data['img'] + 'passive/{}'.format(ability['image']['full'])
                 img_url = gen_uhtml_img_code(self.check_for_jpg(img_url))
                 await self.questions.put(['/adduhtml {}, {}'.format(UHTML_NAME, img_url),
                                           [ability['name']]])
             else:
                 ability = data['champ_data']['spells'][data['cval']-1]
-                img_url = const.DDRAGON_IMG + 'spell/{}'.format(ability['image']['full'])
+                img_url = data['img'] + 'spell/{}'.format(ability['image']['full'])
                 img_url = gen_uhtml_img_code(self.check_for_jpg(img_url))
                 await self.questions.put(['/adduhtml {}, {}'.format(UHTML_NAME, img_url),
                                           [ability['name']]])
@@ -685,9 +770,10 @@ class QuestionList:
         async with session.get(const.OPENTDB_API, params=payload) as r:
             questions = await r.json()
 
-        for q in questions['results']:
-            formatted = f"""/announce {q['question']}"""
-            await self.questions.put([formatted, [q['correct_answer']]])
+        # OpenTDB returns HTML-escaped text by default.
+        for q in questions.get('results', []):
+            formatted = f"""/announce {html.unescape(q['question'])}"""
+            await self.questions.put([formatted, [html.unescape(q['correct_answer'])]])
 
     def gen_vg_base(self, vg_database):
         rank = -1

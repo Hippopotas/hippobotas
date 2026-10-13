@@ -1,9 +1,9 @@
-import dateutil
+import dateutil.parser
 import functools
 import json
 import random
 import requests
-import urllib
+import urllib.parse
 
 import common.constants as const
 
@@ -75,11 +75,12 @@ class Command():
 
 
     def find_rank(self):
-        if self.true_caller == 'hippopotas':
+        if self.true_caller == const.OWNER:
             self.caller_rank = '~'
-        self.caller_rank = self.caller_info['group']
+            return
+        self.caller_rank = self.caller_info['group'] or ' '
         if self.room:
-            for r in self.caller_info['rooms']:
+            for r in (self.caller_info['rooms'] or {}):
                 if r[1:] == self.room:
                     if User.compare_ranks(r[0], self.caller_rank):
                         self.caller_rank = r[0]
@@ -138,7 +139,9 @@ class SimpleCommand(Command):
             except KeyError:
                 pass
             else:
-                self.bot.wpms.loc[self.true_caller, ['top_wpm', 'avg_wpm', 'recent_runs']] = 0, 0, []
+                self.bot.wpms.at[self.true_caller, 'top_wpm'] = 0
+                self.bot.wpms.at[self.true_caller, 'avg_wpm'] = 0
+                self.bot.wpms.at[self.true_caller, 'recent_runs'] = []
                 self.bot.wpms.to_csv(const.WPMFILE)
             self.msg = f'Reset {self.caller}\'s typing speed record to 0 WPM.'
 
@@ -189,7 +192,7 @@ class UhtmlCommand(Command):
             self.usage_msg += '[USERNAME] [-r CATEGORIES]'
             self.mal_args = mal_arg_parser(' '.join(self.args), self.true_caller)
 
-            if self.mal_args.roll is not None:
+            if self.mal_args and self.mal_args.roll is not None:
                 self.pm_response = self.is_pm
 
 
@@ -214,18 +217,24 @@ class UhtmlCommand(Command):
         elif self.is_pm:
             self.msg = f'/sendprivateuhtml {self.true_caller}, '
 
+        if self.command == 'mal' and not self.mal_args:
+            self.pm_response = True
+            return self.usage_with_error('Invalid arguments.')
+
         if self.command == 'plebs':
             uhtml = gen_uhtml_img_code(const.PLEB_URL, height_resize=250)
             self.msg += f'hippo-pleb, {uhtml}'
 
         elif self.command == 'calendar':
             curr_day_str = curr_cal_date()
-            calendar = json.load(open(const.CALENDARFILE))
+            with open(const.CALENDARFILE) as f:
+                calendar = json.load(f)
 
             if self.room not in calendar:
                 calendar[self.room] = {curr_day_str: []}
-                json.dump(calendar, open(const.CALENDARFILE, 'w'), indent=4)
-            if not calendar[self.room][curr_day_str]:
+                with open(const.CALENDARFILE, 'w') as f:
+                    json.dump(calendar, f, indent=4)
+            if not calendar[self.room].get(curr_day_str):
                 return 'No images found for this date.'
 
             date_imgs = calendar[self.room][curr_day_str]
@@ -331,7 +340,8 @@ class ModifiableCommand(Command):
 
     @functools.cached_property
     def json_info(self):
-        return json.load(open(self.file, encoding='utf-8'))
+        with open(self.file, encoding='utf-8') as f:
+            return json.load(f)
 
 
 class DatabaseCommand(Command):
@@ -394,7 +404,8 @@ class TopicCommand(ModifiableCommand):
         elif self.command == 'topic_list':
             pass
 
-        json.dump(self.json_info, open(self.file, 'w'), indent=4)
+        with open(self.file, 'w', encoding='utf-8') as f:
+            json.dump(self.json_info, f, indent=4)
 
         return self.msg
 
@@ -439,46 +450,45 @@ class BanlistCommand(DatabaseCommand):
 
         if len(self.args) > 1:
             if self.banlist in ['anime', 'manga']:
-                self.bl_value = self.args[1]
+                if not self.args[1].isdigit():
+                    await self.pm_msg(f'{self.args[1]} is not a valid MAL ID.')
+                    return ''
+                self.bl_medium, self.bl_value = self.banlist, int(self.args[1])
+                self.check_query = "SELECT * FROM mal_banlist WHERE mal_id=? AND medium=?"
             elif self.banlist == 'anotd':
                 try:
-                    self.bl_value2, self.bl_value = mal_url_info(self.args[1])
+                    self.bl_medium, self.bl_value = mal_url_info(self.args[1])
                 except TypeError:
                     await self.pm_msg(f'{self.args[1]} is not a valid MAL url.')
                     return ''
-
-            self.where_clause = f"WHERE {self.bl_key}={self.bl_value}"
-            if self.banlist in ['anime', 'manga']:
-                self.where_clause += f" AND medium='{self.banlist}'"
-                self.check_query = (f"SELECT * FROM mal_banlist {self.where_clause}")
-            elif self.banlist == 'anotd':
-                self.where_clause += f" AND medium='{self.bl_value2}'"
-                self.check_query = (f"SELECT * FROM {self.banlist}_banlist {self.where_clause}")
+                self.check_query = "SELECT * FROM anotd_banlist WHERE mal_id=? AND medium=?"
+            self.check_params = (self.bl_value, self.bl_medium)
 
         if self.command == 'bl_add':
-            entry_exists = await self.db_man.execute(self.check_query)
+            entry_exists = await self.db_man.execute(self.check_query, self.check_params)
             if entry_exists:
                 await self.pm_msg(f'{self.bl_value} already in {self.banlist} banlist.')
                 return ''
 
             if self.banlist in ['anime', 'manga']:
-                await self.db_man.execute(f"INSERT INTO mal_banlist (medium, mal_id, manual) "
-                                                f"VALUES ('{self.banlist}', {self.bl_value}, 1)")
+                await self.db_man.execute("INSERT INTO mal_banlist (medium, mal_id, manual) "
+                                          "VALUES (?, ?, 1)", (self.banlist, self.bl_value))
             elif self.banlist == 'anotd':
-                await add_anotd_bl(self.bl_value2, self.bl_value, self.bot.anilist_man, self.db_man)
+                await add_anotd_bl(self.bl_medium, self.bl_value, self.bot.anilist_man, self.db_man)
 
             self.msg = f'{self.args[1]} added to {self.banlist} banlist.'
 
         elif self.command == 'bl_rm':
-            entry_exists = await self.db_man.execute(self.check_query)
+            entry_exists = await self.db_man.execute(self.check_query, self.check_params)
             if not entry_exists:
                 await self.pm_msg(f'{self.bl_value} not in {self.banlist} banlist.')
                 return ''
 
             if self.banlist in ['anime', 'manga']:
-                await self.db_man.execute(f"DELETE FROM mal_banlist WHERE medium='{self.banlist}' AND mal_id={self.bl_value} AND manual=1")
+                await self.db_man.execute("DELETE FROM mal_banlist WHERE medium=? AND mal_id=? AND manual=1",
+                                          (self.banlist, self.bl_value))
             elif self.banlist == 'anotd':
-                await rm_anotd_bl(self.bl_value2, self.bl_value, self.bot.anilist_man, self.db_man)
+                await rm_anotd_bl(self.bl_medium, self.bl_value, self.bot.anilist_man, self.db_man)
 
             self.msg = f'{self.args[1]} removed from {self.banlist} banlist.'
 
@@ -491,7 +501,7 @@ class BanlistCommand(DatabaseCommand):
             box_text = ''
             if self.banlist in ['anime', 'manga']:
                 mal_ids = await self.db_man.execute("SELECT mal_id FROM mal_banlist "
-                                                        f"WHERE medium='{self.banlist}' AND manual=1")
+                                                    "WHERE medium=? AND manual=1", (self.banlist,))
                 for mid in list(sum(mal_ids, ())):
                     box_text += monospace_table_row([(mid, 20)])
                     box_text += '\n'
@@ -538,45 +548,48 @@ class EmoteCommand(DatabaseCommand):
             if emote.endswith(','):
                 emote = emote[:-1]
 
-            if find_true_name(emote) != emote:
+            if not emote or find_true_name(emote) != emote:
                 await self.pm_msg('Emotes must be only letters and/or numbers.')
-                return
+                return ''
 
             emote_url = self.args[arg_offset+1]
             if 'discordapp' in emote_url:
                 await self.pm_msg('Discord URLs do not work as emotes.')
-                return
+                return ''
+            if not is_url(emote_url):
+                await self.pm_msg(self.usage_with_error('Please provide a valid URL.'))
+                return ''
 
-            emote_exists = await self.db_man.execute("SELECT * FROM emotes WHERE "
-                                                        f"room='{self.room} AND name={emote}'")
+            emote_exists = await self.db_man.execute("SELECT * FROM emotes WHERE room=? AND name=?",
+                                                     (self.room, emote))
             if emote_exists:
-                await self.db_man.execute(f"UPDATE emotes SET url='{emote_url}' "
-                                            f"WHERE room='{self.room}' AND name='{emote}'")
+                await self.db_man.execute("UPDATE emotes SET url=? WHERE room=? AND name=?",
+                                          (emote_url, self.room, emote))
             else:
-                await self.db_man.execute("INSERT INTO emotes (room, name, url) "
-                                            f"VALUES ('{self.room}', '{emote}', '{emote_url}')")
+                await self.db_man.execute("INSERT INTO emotes (room, name, url) VALUES (?, ?, ?)",
+                                          (self.room, emote, emote_url))
 
             self.msg = f'Set :{emote}: to show {emote_url}.'
         
         elif self.command == 'emote_rm':
             emote = find_true_name(self.args[arg_offset])
 
-            emote_exists = await self.db_man.execute("SELECT * FROM emotes WHERE "
-                                                        f"room='{self.room}' AND name='{emote}'")
+            emote_exists = await self.db_man.execute("SELECT * FROM emotes WHERE room=? AND name=?",
+                                                     (self.room, emote))
 
             if not emote_exists:
                 await self.pm_msg(f'{self.room} does not have emote {emote}.')
-                return
+                return ''
 
-            await self.db_man.execute("DELETE FROM emotes WHERE "
-                                        f"room='{self.room}' AND name='{emote}'")
+            await self.db_man.execute("DELETE FROM emotes WHERE room=? AND name=?",
+                                      (self.room, emote))
             self.msg = f'Removed {emote} from {self.room}.'
 
         elif self.command == 'emote_list':
             self.msg = 'No emotes found.'
 
-            emote_list = await self.db_man.execute("SELECT name FROM emotes "
-                                                        f"WHERE room='{self.room}'")
+            emote_list = await self.db_man.execute("SELECT name FROM emotes WHERE room=?",
+                                                   (self.room,))
 
             if emote_list:
                 # Flatten
@@ -586,8 +599,8 @@ class EmoteCommand(DatabaseCommand):
         elif self.command == 'emote_stats':
             self.msg = f'No emotes found for {self.room}.'
 
-            emote_list = await self.db_man.execute("SELECT name, times_used FROM emotes "
-                                                    f"WHERE room='{self.room}'")
+            emote_list = await self.db_man.execute("SELECT name, times_used FROM emotes WHERE room=?",
+                                                   (self.room,))
 
             if emote_list:
                 header_text = monospace_table_row([('Emote', 30), ('Times Used', 12)])
@@ -643,38 +656,34 @@ class SongCommand(DatabaseCommand):
             title = ' '.join(self.args[arg_offset:-1])
             url = self.args[-1]
 
-            song_exists = await self.db_man.execute("SELECT * FROM songs WHERE "
-                                                        f"room='{self.room}' AND url='{url}'")
+            song_exists = await self.db_man.execute("SELECT * FROM songs WHERE room=? AND url=?",
+                                                    (self.room, url))
 
             if song_exists:
                 self.msg = f'This url already exists in the song pool for {self.room}.'
             else:
-                # Sqlite escape
-                title = title.replace("'", "''")
-                await self.db_man.execute("INSERT INTO songs (room, title, url) "
-                                            f"VALUES ('{self.room}', '{title}', '{url}')")
+                await self.db_man.execute("INSERT INTO songs (room, title, url) VALUES (?, ?, ?)",
+                                          (self.room, title, url))
                 self.msg = f'Added {title} to {self.room} song pool.'
 
         elif self.command == 'song_rm':
             title = ' '.join(self.args[arg_offset:])
             self.msg = f'{title} not found in song pool.'
 
-            room_songs = await self.db_man.execute("SELECT title FROM songs "
-                                                    f"WHERE room='{self.room}'")
+            room_songs = await self.db_man.execute("SELECT title FROM songs WHERE room=?",
+                                                   (self.room,))
 
             for s in list(sum(room_songs, ())):
                 if find_true_name(s) == find_true_name(title):
-                    escaped_s = s.replace("'", "''")
-                    await self.db_man.execute("DELETE FROM songs WHERE "
-                                                f"room='{self.room}' AND title='{escaped_s}'")
-
-            self.msg = f'Deleted all songs called {title} from song pool.'
+                    await self.db_man.execute("DELETE FROM songs WHERE room=? AND title=?",
+                                              (self.room, s))
+                    self.msg = f'Deleted all songs called {title} from song pool.'
 
         elif self.command == 'song_list':
             self.msg = f'No songs found for {self.room}.'
 
-            song_exists = await self.db_man.execute("SELECT title, url FROM songs "
-                                                    f"WHERE room='{self.room}'")
+            song_exists = await self.db_man.execute("SELECT title, url FROM songs WHERE room=?",
+                                                    (self.room,))
 
             if song_exists:
                 room_songs = {}
@@ -698,8 +707,8 @@ class SongCommand(DatabaseCommand):
                     self.msg = 'Unable to generate song list at this time.'
 
         elif self.command == 'randsong':
-            song_exists = await self.db_man.execute("SELECT title, url FROM songs "
-                                                    f"WHERE room='{self.room}'")
+            song_exists = await self.db_man.execute("SELECT title, url FROM songs WHERE room=?",
+                                                    (self.room,))
 
             if not song_exists:
                 self.msg = f'There are no songs for {self.room}!'
@@ -718,7 +727,7 @@ class BirthdayCommand(DatabaseCommand):
         self.usage_msg += '[ROOM] '
 
         if self.command == 'birthday_add':
-            self.min_args += 2
+            self.min_args += 4
             self.usage_msg += 'NAME LINK IMAGE DATE'
         elif self.command == 'birthday_rm':
             self.min_args += 1
@@ -733,7 +742,9 @@ class BirthdayCommand(DatabaseCommand):
                 eligibility = 101
                 self.msg = self.usage_with_error('Please provide a valid URL.')
 
-            if not dateutil.parser.parse(self.args[-1]):
+            try:
+                dateutil.parser.parse(self.args[-1])
+            except (ValueError, OverflowError):
                 eligibility = 101
                 self.msg = self.usage_with_error('Please provide a recognizable day (with no space).')
 
@@ -751,33 +762,32 @@ class BirthdayCommand(DatabaseCommand):
             name = ' '.join(self.args[arg_offset:-3])
             link = self.args[-3]
             image = self.args[-2]
-            day = dateutil.parser.parse(self.args[-1]).strftime('%B %#d')
+            parsed_day = dateutil.parser.parse(self.args[-1])
+            day = f"{parsed_day.strftime('%B')} {parsed_day.day}"
 
             char_exists = await self.db_man.execute("SELECT * FROM birthdays WHERE "
-                                                        f"room='{self.room}' AND name='{name}' AND day='{day}'")
+                                                    "room=? AND name=? AND day=?",
+                                                    (self.room, name, day))
 
             if char_exists:
                 self.msg = f'This character is already in the birthdays for {self.room}.'
             else:
-                # Sqlite escape
-                name = name.replace("'", "''")
                 await self.db_man.execute("INSERT INTO birthdays (name, room, day, image, link) "
-                                            f"VALUES ('{name}', '{self.room}', '{day}', '{image}', '{link}')")
+                                          "VALUES (?, ?, ?, ?, ?)",
+                                          (name, self.room, day, image, link))
                 self.msg = f'Added {name} to {self.room} birthdays.'
 
         elif self.command == 'birthday_rm':
             name = ' '.join(self.args[arg_offset:])
             self.msg = f'{name} not found in birthdays.'
 
-            room_bdays = await self.db_man.execute("SELECT name FROM birthdays "
-                                                    f"WHERE room='{self.room}'")
+            room_bdays = await self.db_man.execute("SELECT name FROM birthdays WHERE room=?",
+                                                   (self.room,))
 
             for n in list(sum(room_bdays, ())):
                 if find_true_name(n) == find_true_name(name):
-                    escaped_n = n.replace("'", "''")
-                    await self.db_man.execute("DELETE FROM birthdays WHERE "
-                                                f"room='{self.room}' AND name='{escaped_n}'")
-
-            self.msg = f'Deleted all birthdays of {name} in {self.room}.'
+                    await self.db_man.execute("DELETE FROM birthdays WHERE room=? AND name=?",
+                                              (self.room, n))
+                    self.msg = f'Deleted all birthdays of {name} in {self.room}.'
 
         return self.msg

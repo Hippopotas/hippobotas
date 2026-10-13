@@ -31,17 +31,20 @@ JIKAN_API = 'https://api.jikan.moe/v4/'
 MAL_API = 'https://api.myanimelist.net/v2/'
 DEX_API = 'https://api.mangadex.org/'
 ANILIST_API = 'https://graphql.anilist.co/'
-DDRAGON_API = 'http://ddragon.leagueoflegends.com/cdn/16.1.1/data/en_US/'
-DDRAGON_IMG = 'http://ddragon.leagueoflegends.com/cdn/16.1.1/img/'
-DDRAGON_SPL = 'http://ddragon.leagueoflegends.com/cdn/img/champion/loading/'
-STEAM_API = 'http://api.steampowered.com/'
+# Fallback version; the latest is looked up from DDRAGON_VERSIONS at runtime.
+DDRAGON_VERSION = '16.20.1'
+DDRAGON_VERSIONS = 'https://ddragon.leagueoflegends.com/api/versions.json'
+DDRAGON_API = f'https://ddragon.leagueoflegends.com/cdn/{DDRAGON_VERSION}/data/en_US/'
+DDRAGON_IMG = f'https://ddragon.leagueoflegends.com/cdn/{DDRAGON_VERSION}/img/'
+DDRAGON_SPL = 'https://ddragon.leagueoflegends.com/cdn/img/champion/loading/'
+STEAM_API = 'https://api.steampowered.com/'
 IGDB_API = 'https://api.igdb.com/v4/'
 PASTIE_API = 'https://pastie.io/documents'
 OPENTDB_API = 'https://opentdb.com/api.php'
 
-MTG_API = 'https://api.scryfall.com/cards/search?q='
-PTCG_API = 'https://api.pokemontcg.io/v2/cards?q=name:'
-YGO_API = 'https://db.ygoprodeck.com/api/v7/cardinfo.php?fname='
+MTG_API = 'https://api.scryfall.com/cards/search'
+PTCG_API = 'https://api.pokemontcg.io/v2/cards'
+YGO_API = 'https://db.ygoprodeck.com/api/v7/cardinfo.php'
 
 BANLISTFILE = os.path.join(BASE_DIR, 'data/banlist.json')
 BIRTHDAYFILE = os.path.join(BASE_DIR, 'data/birthdays.json')

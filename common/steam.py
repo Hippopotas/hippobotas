@@ -90,7 +90,7 @@ async def steam_game_info(game_id):
             game_info = temp_json['data']
 
             # NSFW games
-            if 1 in game_info['content_descriptors']['ids'] and game_info['steam_appid'] not in [1086940, 1687950, 719040]:
+            if 1 in (game_info.get('content_descriptors', {}).get('ids') or []) and game_info['steam_appid'] not in [1086940, 1687950, 719040]:
                 return None
 
     return game_info

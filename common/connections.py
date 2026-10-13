@@ -28,24 +28,30 @@ class DatabaseManager():
         self.db = db_file
 
 
-    async def execute(self, query):
-        if 'droptable' in find_true_name(query):
+    async def execute(self, query, params=(), allow_drop=False):
+        '''
+        Runs a query against the database. Pass user-supplied values
+        through params (as ? placeholders) rather than formatting them
+        into the query string.
+        '''
+        if 'droptable' in find_true_name(query) and not allow_drop:
             print(f'SOMEONE TRIED TO DROP TABLES WITH: {query}')
-            return
-        await self.db_lock.acquire()
+            return []
 
         rows = []
+        async with self.db_lock:
+            try:
+                connection = sqlite3.connect(self.db)
+            except sqlite3.Error as e:
+                print(f'Could not open {self.db}: {e}')
+                return rows
 
-        connection = sqlite3.connect(self.db)
-
-        try:
-            with connection:
-                rows = connection.execute(query).fetchall()
-        except Exception as e:
-            print(f'{query} failed on {self.db}: {e}')
-        finally:
-            connection.close()
-
-        self.db_lock.release()
+            try:
+                with connection:
+                    rows = connection.execute(query, params).fetchall()
+            except Exception as e:
+                print(f'{query} {params} failed on {self.db}: {e}')
+            finally:
+                connection.close()
 
         return rows

@@ -1,4 +1,5 @@
 import asyncio
+import calendar
 import datetime
 import re
 import urllib.request
@@ -122,6 +123,8 @@ def is_url(uri):
 def sanitize_html(text):
     """ Escape annoying characters from text that goes in uhtml.
     """
+    if not text:
+        return ''
     return text.replace('<br>', '').replace('<', '&lt;').replace('>', '&gt;')
 
 
@@ -136,7 +139,7 @@ async def birthday_text(bot, automatic, room):
     today = datetime.datetime.today().strftime('%B %d').replace(' 0', ' ')
     short_today = datetime.datetime.today().strftime('%b %d').replace(' 0', ' ')
     birthday_chars = await bot.roomdata_man.execute("SELECT name, image, link FROM birthdays "
-                                                    f"WHERE day='{today}' AND room='{room}'")
+                                                    "WHERE day=? AND room=?", (today, room))
 
     if not birthday_chars:
         if not automatic:
@@ -152,10 +155,10 @@ async def birthday_text(bot, automatic, room):
     if len(birthday_chars) > 15:
         max_scroll = 'overflow-y: scroll; max-height: 250px'
 
-    if today == 'February 28' and (curr_year % 4 != 0 or curr_year % 100 == 0):
+    if today == 'February 28' and not calendar.isleap(curr_year):
         tomorrow_uhtml = '<tr><td colspan=10><b><center>(Feb 29)</center></b></td></tr>'
         tomorrow_chars = await bot.roomdata_man.execute("SELECT name, image, link FROM birthdays "
-                                                       f"WHERE day='February 29' AND room='{room}'")
+                                                       "WHERE day='February 29' AND room=?", (room,))
         tomorrow_uhtml += bot.birthday_chars_to_uhtml(tomorrow_chars)
 
     uhtml = (f'<div style=\'{max_scroll}\'>'
