@@ -56,6 +56,7 @@ TOPICFILE = os.path.join(BASE_DIR, 'data/topics.json')
 WPMFILE = os.path.join(BASE_DIR, 'data/wpm.txt')
 
 ROOMDATA_DB = os.path.join(BASE_DIR, 'data/roomdata.db')
+IMG_DIMS_DB = os.path.join(BASE_DIR, 'data/img_dims.db')
 
 STEAMFILE = os.path.join(BASE_DIR, 'data/steam.txt')
 

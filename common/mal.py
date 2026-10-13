@@ -9,7 +9,7 @@ import common.constants as const
 
 from common.connections import ApiManager
 from common.uhtml import UserInfo
-from common.utils import find_true_name, gen_uhtml_img_code
+from common.utils import find_true_name, gen_uhtml_img
 
 
 async def jikan_user_info(username, jikan_man):
@@ -234,7 +234,7 @@ class MalManager(ApiManager):
         img_url = const.IMG_NOT_FOUND
         if user_data['images']:
             img_url = user_data['images']['jpg']['image_url']
-        img_uhtml = gen_uhtml_img_code(img_url, height_resize=100, width_resize=125)
+        img_uhtml = await gen_uhtml_img(img_url, height_resize=100, width_resize=125)
 
         # Set favorite series
         top_series_uhtml = {'anime': (), 'manga': ()}
@@ -256,7 +256,7 @@ class MalManager(ApiManager):
                     break
 
             top_series_uhtml[medium] = (top_series, top_series_url,
-                                        gen_uhtml_img_code(top_series_img, height_resize=64))
+                                        await gen_uhtml_img(top_series_img, height_resize=64))
 
         user_info = UserInfo(user_data['username'], user_data['url'], 'mal')
         kwargs = {'profile_pic': img_uhtml,

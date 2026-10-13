@@ -27,7 +27,7 @@ from common.connections import ApiManager, DatabaseManager
 from common.mal import MalManager
 from common.steam import set_steam_user, show_steam_user, steam_user_rand_series
 from common.tcg import display_mtg_card, display_ptcg_card, display_ygo_card
-from common.utils import find_true_name, gen_uhtml_img_code, leaderboard_uhtml, birthday_text
+from common.utils import find_true_name, gen_uhtml_img, leaderboard_uhtml, birthday_text
 from room import Room
 from trivia import check_answer
 from user import User
@@ -750,7 +750,7 @@ class Bot:
                 await self.roomdata_man.execute("UPDATE emotes SET times_used=times_used+1 "
                                                 "WHERE room=? AND name=?", (room, emote))
 
-                uhtml = gen_uhtml_img_code(emote_dict[emote]['url'], height_resize=50, alt=emote)
+                uhtml = await gen_uhtml_img(emote_dict[emote]['url'], height_resize=50, alt=emote)
                 await self.outgoing.put(f'{room}|/adduhtml hippo-{emote}, {uhtml}')
 
 
@@ -827,7 +827,7 @@ class Bot:
         await self.outgoing.put(f'|/friend accept {new_friend}')
 
 
-    def birthday_chars_to_uhtml(self, characters):
+    async def birthday_chars_to_uhtml(self, characters):
         '''
         Generates table-rows-html, given a list of characters and their info.
 
@@ -839,11 +839,13 @@ class Bot:
         if num_chars % 3 == 0 and (num_chars / 3) < 4:
             display_len = 3
 
+        # Measure all the images at once rather than one after another.
+        img_uhtmls = await asyncio.gather(*[gen_uhtml_img(char[1] or const.IMG_NOT_FOUND,
+                                                          height_resize=64, width_resize=64)
+                                            for char in characters])
+
         char_uhtml = '<tr>'
-        for i, char in enumerate(characters):
-            img_uhtml = gen_uhtml_img_code(const.IMG_NOT_FOUND, height_resize=64, width_resize=64)
-            if char[1]:
-                img_uhtml = gen_uhtml_img_code(char[1], height_resize=64, width_resize=64)
+        for i, (char, img_uhtml) in enumerate(zip(characters, img_uhtmls)):
 
             char_url = ''
             if len(char) == 3:
@@ -1457,7 +1459,7 @@ class Bot:
             if not msg.startswith('|') and random.random() < 0.0001:
                 room = msg.split('|')[0]
                 url = 'https://i.imgur.com/z4nlXPW.png'
-                uhtml = gen_uhtml_img_code(url, height_resize=50, alt='worryclown')
+                uhtml = await gen_uhtml_img(url, height_resize=50, alt='worryclown')
                 msg = f'{room}|/adduhtml hippo-worryclown, {uhtml}'
 
             print('Sending: ')

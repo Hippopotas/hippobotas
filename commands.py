@@ -10,7 +10,7 @@ import common.constants as const
 from common.anilist import add_anotd_bl, anilist_search, anilist_rand_series, rm_anotd_bl
 from common.arg_parsers import mal_arg_parser
 from common.mal import mal_url_info
-from common.utils import find_true_name, gen_uhtml_img_code, curr_cal_date, \
+from common.utils import find_true_name, gen_uhtml_img, curr_cal_date, image_dims, \
                          monospace_table_row, is_url, is_uhtml, birthday_text, leaderboard_uhtml
 from user import User
 
@@ -222,7 +222,7 @@ class UhtmlCommand(Command):
             return self.usage_with_error('Invalid arguments.')
 
         if self.command == 'plebs':
-            uhtml = gen_uhtml_img_code(const.PLEB_URL, height_resize=250)
+            uhtml = await gen_uhtml_img(const.PLEB_URL, height_resize=250)
             self.msg += f'hippo-pleb, {uhtml}'
 
         elif self.command == 'calendar':
@@ -238,7 +238,7 @@ class UhtmlCommand(Command):
                 return 'No images found for this date.'
 
             date_imgs = calendar[self.room][curr_day_str]
-            uhtml = gen_uhtml_img_code(random.choice(date_imgs), height_resize=200)
+            uhtml = await gen_uhtml_img(random.choice(date_imgs), height_resize=200)
             self.msg += f'hippo-calendar, {uhtml}'
 
         elif self.command == 'wpm_top':
@@ -559,6 +559,9 @@ class EmoteCommand(DatabaseCommand):
             if not is_url(emote_url):
                 await self.pm_msg(self.usage_with_error('Please provide a valid URL.'))
                 return ''
+            if not all(await image_dims(emote_url)):
+                await self.pm_msg(f'Could not load an image from {emote_url}.')
+                return ''
 
             emote_exists = await self.db_man.execute("SELECT * FROM emotes WHERE room=? AND name=?",
                                                      (self.room, emote))
@@ -762,6 +765,10 @@ class BirthdayCommand(DatabaseCommand):
             name = ' '.join(self.args[arg_offset:-3])
             link = self.args[-3]
             image = self.args[-2]
+            if not all(await image_dims(image)):
+                await self.pm_msg(f'Could not load an image from {image}.')
+                return ''
+
             parsed_day = dateutil.parser.parse(self.args[-1])
             day = f"{parsed_day.strftime('%B')} {parsed_day.day}"
 

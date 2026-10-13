@@ -6,7 +6,6 @@ import math
 import pandas as pd
 import random
 import re
-import requests
 import time
 
 from peewee import fn
@@ -15,7 +14,7 @@ import common.constants as const
 
 from common.anilist import anilist_num_entries
 from common.qbowl_db import QuestionTable
-from common.utils import find_true_name, gen_uhtml_img_code, leaderboard_uhtml
+from common.utils import find_true_name, gen_uhtml_img, img_tag, leaderboard_uhtml
 
 BASE_DIFF = 3
 VG_DIFF_SCALE = 300
@@ -373,10 +372,10 @@ class QuestionList:
                 return True
         return False
 
-    def check_for_jpg(self, url):
-        r = requests.head(url, timeout=10)
-        if r.status_code != 200:
-            return url[:-3] + 'jpg'
+    async def check_for_jpg(self, session, url):
+        async with session.head(url) as r:
+            if r.status != 200:
+                return url[:-3] + 'jpg'
         return url
 
     async def gen_am_base(self, session, anilist_man):
@@ -561,7 +560,7 @@ class QuestionList:
             await self.questions.put([f'/announce Unscramble this: **{scrambled}**', [answer]])
             return
 
-        img_url = gen_uhtml_img_code(base['img_url'], dims=(140, 210))
+        img_url = img_tag(base['img_url'], (140, 210))
 
         await self.questions.put(['/adduhtml {}, {}'.format(UHTML_NAME, img_url),
                                   base['answers']])
@@ -637,7 +636,7 @@ class QuestionList:
         self.q_bases.append(series_id)
 
         img_url = f'https://uploads.mangadex.org/covers/{series_id}/{cover_id}.256.jpg'
-        img_uhtml = gen_uhtml_img_code(img_url, height_resize=PIC_SIZE)
+        img_uhtml = await gen_uhtml_img(img_url, height_resize=PIC_SIZE)
         await self.questions.put(['/adduhtml {}, {}'.format(UHTML_NAME, img_uhtml), answers])
 
     async def gen_lol_base(self, session, data):
@@ -669,7 +668,9 @@ class QuestionList:
                 data['champ_data'] = json.loads(resp)['data'][data['champ']]
 
                 if data['qtype'] == 'skins':
-                    skin = random.choice(data['champ_data']['skins'])
+                    # Chromas are listed as skins but have no art of their own.
+                    skins = [s for s in data['champ_data']['skins'] if 'parentSkin' not in s]
+                    skin = random.choice(skins)
                     data['cval'] = skin['num']
                 elif data['qtype'] == 'spells':
                     data['cval'] = random.randint(0, 4)
@@ -706,7 +707,7 @@ class QuestionList:
 
         if data['qtype'] == 'items':
             img_url = data['img'] + 'item/{}.png'.format(data['item'])
-            img_url = gen_uhtml_img_code(self.check_for_jpg(img_url))
+            img_url = await gen_uhtml_img(await self.check_for_jpg(session, img_url))
             await self.questions.put(['/adduhtml {}, {}'.format(UHTML_NAME, img_url),
                                       [data['all_items'][data['item']]['name']]])
         elif data['qtype'] == 'skins':
@@ -717,7 +718,7 @@ class QuestionList:
                     break
 
             img_url = const.DDRAGON_SPL + '{}_{}.jpg'.format(data['champ'], data['cval'])
-            img_url = gen_uhtml_img_code(self.check_for_jpg(img_url))
+            img_url = await gen_uhtml_img(await self.check_for_jpg(session, img_url))
             await self.questions.put(['/adduhtml {}, {}'.format(UHTML_NAME, img_url),
                                       [skin_name]])
         elif data['qtype'] == 'spells':
@@ -725,13 +726,13 @@ class QuestionList:
             if data['cval'] == 0:
                 ability = data['champ_data']['passive']
                 img_url = data['img'] + 'passive/{}'.format(ability['image']['full'])
-                img_url = gen_uhtml_img_code(self.check_for_jpg(img_url))
+                img_url = await gen_uhtml_img(await self.check_for_jpg(session, img_url))
                 await self.questions.put(['/adduhtml {}, {}'.format(UHTML_NAME, img_url),
                                           [ability['name']]])
             else:
                 ability = data['champ_data']['spells'][data['cval']-1]
                 img_url = data['img'] + 'spell/{}'.format(ability['image']['full'])
-                img_url = gen_uhtml_img_code(self.check_for_jpg(img_url))
+                img_url = await gen_uhtml_img(await self.check_for_jpg(session, img_url))
                 await self.questions.put(['/adduhtml {}, {}'.format(UHTML_NAME, img_url),
                                           [ability['name']]])
 

@@ -6,7 +6,7 @@ import random
 import common.constants as const
 
 from common.uhtml import ItemInfo
-from common.utils import gen_uhtml_img_code
+from common.utils import img_tag
 
 
 async def anilist_num_entries(query, query_vars, session):
@@ -73,7 +73,7 @@ async def anilist_search(medium, search, anilist_man):
                 series_data = series_list[0]
 
     mal_url = f'https://myanimelist.net/{medium}/{series_data["idMal"]}'
-    img_uhtml = gen_uhtml_img_code(series_data['coverImage']['extraLarge'], dims=(65, 100))
+    img_uhtml = img_tag(series_data['coverImage']['extraLarge'], (65, 100))
     title = series_data['title']['english']
     if not title:
         title = series_data['title']['romaji']
@@ -165,7 +165,7 @@ async def anilist_rand_series(medium, anilist_man, genres=[], tags=[]):
                         query_vars['page'] = query_vars['page'] // 2
 
     mal_url = f'https://myanimelist.net/{medium}/{series_data["idMal"]}'
-    img_uhtml = gen_uhtml_img_code(series_data['coverImage']['extraLarge'], dims=(65, 100))
+    img_uhtml = img_tag(series_data['coverImage']['extraLarge'], (65, 100))
     title = series_data['title']['english']
     if not title:
         title = series_data['title']['userPreferred']

@@ -8,7 +8,7 @@ import re
 
 from common.constants import IMG_NOT_FOUND, STEAM_API, STEAMFILE
 from common.uhtml import UserInfo
-from common.utils import find_true_name, gen_uhtml_img_code
+from common.utils import find_true_name, gen_uhtml_img
 
 async def get_steam_user(username, retries=2):
     async with aiohttp.ClientSession(trust_env=True) as session:
@@ -103,7 +103,7 @@ async def gen_uhtml_steam_game(game_id, recent_hours, total_hours):
         return None
 
     game_name = game_info['name']
-    img_uhtml = gen_uhtml_img_code(game_info['header_image'], height_resize=50)
+    img_uhtml = await gen_uhtml_img(game_info['header_image'], height_resize=50)
 
     game_kwargs = {'img_uhtml': img_uhtml,
                    'url': f'https://store.steampowered.com/app/{game_id}',
@@ -131,7 +131,7 @@ async def show_steam_user(putter, username, true_caller, ctx):
         img_url = IMG_NOT_FOUND
         if userdata['avatarfull']:
             img_url = userdata['avatarfull']
-        img_uhtml = gen_uhtml_img_code(img_url, height_resize=100, width_resize=125)
+        img_uhtml = await gen_uhtml_img(img_url, height_resize=100, width_resize=125)
 
         # Generate recently played uhtml
         id64 = userdata['steamid']

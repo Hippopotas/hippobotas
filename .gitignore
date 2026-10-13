@@ -17,3 +17,12 @@ players.db
 # PyInstaller build output
 build/
 *.spec
+
+# Local scripts, battle teams, and scratch files
+scripts/
+teams/
+run_bot.sh
+quizbowl_scraper.py
+test*.py
+test.txt
+input.txt
