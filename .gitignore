@@ -26,3 +26,8 @@ quizbowl_scraper.py
 test*.py
 test.txt
 input.txt
+
+# Local documents and reference files
+Packet 2.docx
+evo_info.csv
+evo_info.txt
