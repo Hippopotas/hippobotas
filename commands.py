@@ -2,7 +2,6 @@ import dateutil.parser
 import functools
 import json
 import random
-import requests
 import urllib.parse
 
 import common.constants as const
@@ -11,7 +10,8 @@ from common.anilist import add_anotd_bl, anilist_search, anilist_rand_series, rm
 from common.arg_parsers import mal_arg_parser
 from common.mal import mal_url_info
 from common.utils import find_true_name, gen_uhtml_img, curr_cal_date, image_dims, \
-                         monospace_table_row, is_url, is_uhtml, birthday_text, leaderboard_uhtml
+                         monospace_table_row, is_url, is_uhtml, birthday_text, leaderboard_uhtml, \
+                         pastie_upload
 from user import User
 
 
@@ -613,12 +613,8 @@ class EmoteCommand(DatabaseCommand):
                     box_text += monospace_table_row([(e[0], 30), (e[1], 12)])
                     box_text += '\n'
 
-                r = requests.post(const.PASTIE_API, data=f'{header_text}\n{box_text}')
-
-                if r.status_code == 200:
-                    self.msg = f"""https://pastie.io/raw/{r.json()['key']}"""
-                else:
-                    self.msg = 'Unable to generate emote stats at this time.'
+                paste_url = await pastie_upload(f'{header_text}\n{box_text}')
+                self.msg = paste_url or 'Unable to generate emote stats at this time.'
 
         return self.msg
 
@@ -702,12 +698,8 @@ class SongCommand(DatabaseCommand):
                                                      (room_songs[s], 25)])
                     box_text += '\n'
 
-                r = requests.post(const.PASTIE_API, data=f'{header_text}\n{box_text}'.encode('utf-8'))
-
-                if r.status_code == 200:
-                    self.msg = f"""https://pastie.io/raw/{r.json()['key']}"""
-                else:
-                    self.msg = 'Unable to generate song list at this time.'
+                paste_url = await pastie_upload(f'{header_text}\n{box_text}')
+                self.msg = paste_url or 'Unable to generate song list at this time.'
 
         elif self.command == 'randsong':
             song_exists = await self.db_man.execute("SELECT title, url FROM songs WHERE room=?",

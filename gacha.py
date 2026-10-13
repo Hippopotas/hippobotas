@@ -1,7 +1,6 @@
 import json
 import peewee
 import random
-import requests
 
 from datetime import datetime
 from peewee import EnclosedNodeList, Tuple, ValuesList
@@ -11,7 +10,7 @@ import common.constants as const
 from common.gacha_db import PlayerAccInfoTable, PlayerBoxTable
 from common.gacha_db import AllGachasTable, PadTable, FgoTable
 from common.uhtml import ItemInfo, UserInfo
-from common.utils import gen_uhtml_img_code, monospace_table_row
+from common.utils import gen_uhtml_img_code, monospace_table_row, pastie_upload
 
 HOURLY_ROLLS = 3
 MERGE_COUNT = 2
@@ -44,7 +43,7 @@ def roll_uhtml(user, gacha, pulls, pm=False):
     return uhtml
 
 
-def box_output(box):
+async def box_output(box):
     """ Formats a query from PlayerBoxTable that
         represents a user's owned units.
     """
@@ -73,14 +72,8 @@ def box_output(box):
 
     all_text = f'{header_text}\n{box_text}'
 
-    r = requests.post(const.PASTIE_API, data=all_text)
-
-    msg = 'Could not generate box. Please try again later.'
-    if r.status_code == 200:
-        url = json.loads(r.text)['key']
-        msg = f'https://pastie.io/raw/{url}'
-
-    return msg
+    paste_url = await pastie_upload(all_text)
+    return paste_url or 'Could not generate box. Please try again later.'
 
 
 class GachaManager:
@@ -159,10 +152,10 @@ class GachaManager:
         return f'/adduhtml gprofile-{username}, {uhtml}'
 
 
-    def player_box(self, username):
+    async def player_box(self, username):
         pb = type(username, (PlayerBoxTable,), {})
         box = pb.select().order_by(pb.favorited.desc(), pb.unit_level.desc(), pb.unit_id.asc())
-        return box_output(box)
+        return await box_output(box)
 
 
     def add_rolls(self):

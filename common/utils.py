@@ -10,7 +10,7 @@ import urllib.request
 from io import BytesIO
 from PIL import Image, ImageFile
 
-from common.constants import IMG_DIMS_DB, IMG_NOT_FOUND
+from common.constants import IMG_DIMS_DB, IMG_NOT_FOUND, PASTIE_API
 
 # Give up on finding an image's header after this many bytes.
 IMG_READ_LIMIT = 4 * 1024 * 1024
@@ -18,6 +18,8 @@ IMG_TIMEOUT = 10
 # Don't retry a URL that failed to load for this many seconds.
 IMG_RETRY_DELAY = 10 * 60
 IMG_HEADERS = {'User-Agent': 'hippobotas (Pokemon Showdown chat bot)'}
+
+PASTIE_TIMEOUT = 15
 
 
 def is_uhtml(text):
@@ -272,6 +274,25 @@ def img_tag(url, dims, center=True, **kwargs):
         uhtml = f'<center>{uhtml}</center>'
 
     return uhtml
+
+
+async def pastie_upload(text):
+    """ Uploads text to pastie.io without blocking.
+        Returns the raw paste URL, or None if the upload failed.
+    """
+    try:
+        timeout = aiohttp.ClientTimeout(total=PASTIE_TIMEOUT)
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.post(PASTIE_API, data=text.encode('utf-8')) as r:
+                if r.status != 200:
+                    print(f'pastie.io upload returned {r.status}.')
+                    return None
+                key = (await r.json(content_type=None))['key']
+    except (aiohttp.ClientError, asyncio.TimeoutError, ValueError, KeyError, TypeError) as e:
+        print(f'pastie.io upload failed: {e!r}')
+        return None
+
+    return f'https://pastie.io/raw/{key}'
 
 
 def leaderboard_uhtml(leaderboard, title, name='tleaderboard', metric='pts'):

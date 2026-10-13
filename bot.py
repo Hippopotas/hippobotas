@@ -11,7 +11,6 @@ import os
 import pandas as pd
 import random
 import re
-import requests
 import shlex
 import time
 import traceback
@@ -34,6 +33,7 @@ from user import User
 
 PS_SOCKET = 'wss://sim3.psim.us/showdown/websocket'
 PS_LOGIN = 'https://play.pokemonshowdown.com/api/login'
+TWITCH_TOKEN_API = 'https://id.twitch.tv/oauth2/token'
 RECONNECT_DELAY = 5
 JOINLIST = [const.ANIME_ROOM,
             const.LEAGUE_ROOM,
@@ -129,9 +129,9 @@ class Bot:
         self.mal_rooms = [const.ANIME_ROOM, const.PEARY_ROOM]
         self.steam_rooms = [const.VG_ROOM, const.PEARY_ROOM]
 
+        # Fetched on first use of ]vg.
         self.igdb_token = None
         self.igdb_token_expire = 0
-        self.refresh_igdb_token()
 
 
     @staticmethod
@@ -161,7 +161,7 @@ class Bot:
             asyncio.get_running_loop().create_task(WS.close())
 
 
-    def refresh_igdb_token(self):
+    async def refresh_igdb_token(self):
         '''
         Gets IGDB access token.
 
@@ -172,15 +172,17 @@ class Bot:
                    'grant_type': 'client_credentials'}
 
         try:
-            r = requests.post('https://id.twitch.tv/oauth2/token', data=payload, timeout=10)
-            igdb_info = r.json()
+            timeout = aiohttp.ClientTimeout(total=10)
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                async with session.post(TWITCH_TOKEN_API, data=payload) as r:
+                    igdb_info = await r.json(content_type=None)
             self.igdb_token = igdb_info['access_token']
             self.igdb_token_expire = time.time() + int(igdb_info['expires_in'])
-        except (requests.RequestException, ValueError, KeyError) as e:
+        except (aiohttp.ClientError, asyncio.TimeoutError, ValueError, KeyError, TypeError) as e:
             print(f'Could not get an IGDB token: {e!r}')
 
 
-    def check_igdb_token(self):
+    async def check_igdb_token(self):
         '''
         Checks if IGDB access token has expired, and
         generates a new one if it has.
@@ -188,7 +190,7 @@ class Bot:
         Args:
         '''
         if time.time() > self.igdb_token_expire:
-            self.refresh_igdb_token()
+            await self.refresh_igdb_token()
 
 
     async def start_repeats(self):
@@ -1132,7 +1134,13 @@ class Bot:
                 msg = 'Please specify a game to search for.'
             else:
                 search = ' '.join(command[1:]).replace('"', '')
-                self.check_igdb_token()
+                await self.check_igdb_token()
+                if not self.igdb_token:
+                    msg = 'Game search is unavailable right now.'
+                    if pm:
+                        msg = f'/w {true_caller}, {msg}'
+                    await self.outgoing.put(f'{room}|{msg}')
+                    return
 
                 headers = {'Client-ID': os.getenv('TWITCH_ID'),
                         'Authorization': f'Bearer {self.igdb_token}'}
@@ -1291,7 +1299,7 @@ class Bot:
             if not self.gachaman.player_check(true_caller):
                 msg = 'You don\'t have an account! Use ]gacha_join first'
             else:
-                msg = self.gachaman.player_box(true_caller)
+                msg = await self.gachaman.player_box(true_caller)
 
         elif command[0] == 'gprofile' and room == const.GACHA_ROOM:
             if not self.gachaman.player_check(true_caller):
