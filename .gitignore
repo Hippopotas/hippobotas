@@ -1,0 +1,19 @@
+# Python bytecode
+__pycache__/
+*.py[cod]
+
+# Secrets (PS/Discord/Twitch/Steam/MAL credentials)
+.env
+
+# Runtime output and logs
+nohup.out
+*.log
+
+# Bot data: databases, scores, and per-room state written while running
+data/
+trivia/
+players.db
+
+# PyInstaller build output
+build/
+*.spec
