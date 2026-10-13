@@ -193,6 +193,7 @@ class Bot:
         asyncio.create_task(self.ping_connect(), name='ping-connect')
         asyncio.create_task(self.user_repeater(), name='user-repeat')
         asyncio.create_task(self.prune_anotd(), name='anotd_repeat')
+        asyncio.create_task(self.mal_man.refresh_repeater(), name='mal-refresh')
 
         birthday_rooms = await self.roomdata_man.execute("SELECT DISTINCT room FROM birthdays")
         for room in birthday_rooms:

@@ -55,3 +55,33 @@ class DatabaseManager():
                 connection.close()
 
         return rows
+
+
+    async def transaction(self, statements):
+        '''
+        Runs several statements as one transaction: either all of them take
+        effect or none do. Each statement is (query, params); a list of
+        parameter tuples runs the query once per tuple.
+
+        Returns whether the transaction succeeded.
+        '''
+        async with self.db_lock:
+            try:
+                connection = sqlite3.connect(self.db)
+            except sqlite3.Error as e:
+                print(f'Could not open {self.db}: {e}')
+                return False
+
+            try:
+                with connection:
+                    for query, params in statements:
+                        if isinstance(params, list):
+                            connection.executemany(query, params)
+                        else:
+                            connection.execute(query, params)
+                return True
+            except Exception as e:
+                print(f'Transaction failed on {self.db}: {e}')
+                return False
+            finally:
+                connection.close()
