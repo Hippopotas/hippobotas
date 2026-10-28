@@ -86,6 +86,19 @@ class Command():
                         self.caller_rank = r[0]
                     break
 
+            # userdetails can be hours old or hidden, so also use the live rank:
+            # a room message carries the sender's current rank, and for PMs the
+            # bot's own copy of the room's userlist is kept up to date.
+            live_rank = None
+            if not self.is_pm and self.caller and self.caller[0] in User.Groups:
+                live_rank = self.caller[0]
+            elif self.bot.roomlist.get(self.room):
+                room_user = self.bot.roomlist[self.room].get_user(self.true_caller)
+                live_rank = room_user.rank if room_user else None
+
+            if live_rank and User.compare_ranks(live_rank, self.caller_rank):
+                self.caller_rank = live_rank
+
 
     async def pm_msg(self, message):
         if message:

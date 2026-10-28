@@ -431,7 +431,12 @@ class Bot:
                 if true_name in self.users:
                     if userinfo.get('group'):
                         self.users[true_name]['group'] = userinfo['group']
-                    self.users[true_name]['rooms'] = userinfo.get('rooms') or {}
+                    # Showdown often answers "rooms": false (e.g. for idle users), which
+                    # doesn't mean they've lost their room ranks, so keep what we knew.
+                    if userinfo.get('rooms'):
+                        self.users[true_name]['rooms'] = userinfo['rooms']
+                    elif self.users[true_name]['rooms'] is None:
+                        self.users[true_name]['rooms'] = {}
                     self.users[true_name]['event'].set()
             else:
                 print(parts)
