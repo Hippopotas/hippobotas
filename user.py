@@ -1,3 +1,4 @@
+import logging
 import aiohttp
 import asyncio
 import json
@@ -7,6 +8,8 @@ import random
 import re
 
 from common.utils import find_true_name
+
+logger = logging.getLogger(__name__)
 
 
 class User:
@@ -18,9 +21,9 @@ class User:
             return User.Groups[rank1] >= User.Groups[rank2]
         except KeyError:
             if rank1 not in User.Groups:
-                print('{rank} is not a supported usergroup'.format(rank = rank1))
+                logger.warning('{rank} is not a supported usergroup'.format(rank = rank1))
             if rank2 not in User.Groups:
-                print('{rank} is not a supported usergroup'.format(rank = rank2))
+                logger.warning('{rank} is not a supported usergroup'.format(rank = rank2))
             return False
 
     def __init__(self, username, rank=' '):

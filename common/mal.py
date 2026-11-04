@@ -1,16 +1,18 @@
+import logging
 import aiohttp
 import asyncio
 import os
 import random
 import re
 import time
-import traceback
 
 import common.constants as const
 
 from common.connections import ApiManager
 from common.uhtml import UserInfo
 from common.utils import find_true_name, gen_uhtml_img
+
+logger = logging.getLogger(__name__)
 
 # Seconds to wait on MAL or Jikan before giving up on a request.
 MAL_TIMEOUT = 15
@@ -121,7 +123,7 @@ class MalManager(ApiManager):
                 async with aiohttp.ClientSession(timeout=timeout) as session:
                     async with session.get(url, headers={'X-MAL-CLIENT-ID': os.getenv('MAL_ID', '')}, **kwargs) as r:
                         if 300 <= r.status < 400:
-                            print(f'MAL redirected {url} to {r.headers.get("Location")} '
+                            logger.warning(f'MAL redirected {url} to {r.headers.get("Location")} '
                                   '(likely rate limiting); pausing background refreshes.')
                             self.throttled_until = time.time() + THROTTLE_BACKOFF
                             return r.status, {}
@@ -129,11 +131,11 @@ class MalManager(ApiManager):
                         request_data = await r.json(content_type=None)
 
                         if r.status != 200:
-                            print(f'MAL API returned {r.status} for {url}: {request_data}')
+                            logger.warning(f'MAL API returned {r.status} for {url}: {request_data}')
 
                         return r.status, request_data or {}
             except (aiohttp.ClientError, asyncio.TimeoutError, ValueError) as e:
-                print(f'MAL API request failed for {url}: {e!r}')
+                logger.warning(f'MAL API request failed for {url}: {e!r}')
                 return None, {}
 
 
@@ -275,7 +277,7 @@ class MalManager(ApiManager):
             if not entries and await self.table_exists(table_name):
                 cached = await self.db_man.execute(f"SELECT COUNT(*) FROM {table_name}")
                 if cached and cached[0][0]:
-                    print(f'MAL returned an empty list for {mal_user}; keeping the cached one.')
+                    logger.warning(f'MAL returned an empty list for {mal_user}; keeping the cached one.')
                     self.failed_refreshes[table_name] = time.time()
                     return False
 
@@ -320,7 +322,7 @@ class MalManager(ApiManager):
                     done.add(table_name)
                     await self.update_user(ps_user)
             except Exception:
-                traceback.print_exc()
+                logger.exception('MAL list refresh pass failed')
 
             await asyncio.sleep(REFRESH_INTERVAL)
 
@@ -387,7 +389,7 @@ class MalManager(ApiManager):
             if await jikan_user_info(mal_user, jikan_man) is None:
                 return f"Could not find {mal_user} on MAL."
         except MalUnavailable as e:
-            print(e)
+            logger.warning(e)
             return JIKAN_DOWN_MSG
 
         current_user = await self.mal_of_ps(ps_user)
@@ -421,7 +423,7 @@ class MalManager(ApiManager):
         try:
             user_data = await jikan_user_info(mal_user, jikan_man)
         except MalUnavailable as e:
-            print(e)
+            logger.warning(e)
             return JIKAN_DOWN_MSG
 
         if user_data is None:

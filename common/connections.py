@@ -1,9 +1,12 @@
+import logging
 import aiohttp
 import asyncio
 import sqlite3
 
 from contextlib import asynccontextmanager
 from common.utils import find_true_name
+
+logger = logging.getLogger(__name__)
 
 
 class ApiManager():
@@ -35,7 +38,7 @@ class DatabaseManager():
         into the query string.
         '''
         if 'droptable' in find_true_name(query) and not allow_drop:
-            print(f'SOMEONE TRIED TO DROP TABLES WITH: {query}')
+            logger.warning(f'SOMEONE TRIED TO DROP TABLES WITH: {query}')
             return []
 
         rows = []
@@ -43,14 +46,14 @@ class DatabaseManager():
             try:
                 connection = sqlite3.connect(self.db)
             except sqlite3.Error as e:
-                print(f'Could not open {self.db}: {e}')
+                logger.warning(f'Could not open {self.db}: {e}')
                 return rows
 
             try:
                 with connection:
                     rows = connection.execute(query, params).fetchall()
             except Exception as e:
-                print(f'{query} {params} failed on {self.db}: {e}')
+                logger.warning(f'{query} {params} failed on {self.db}: {e}')
             finally:
                 connection.close()
 
@@ -69,7 +72,7 @@ class DatabaseManager():
             try:
                 connection = sqlite3.connect(self.db)
             except sqlite3.Error as e:
-                print(f'Could not open {self.db}: {e}')
+                logger.warning(f'Could not open {self.db}: {e}')
                 return False
 
             try:
@@ -81,7 +84,7 @@ class DatabaseManager():
                             connection.execute(query, params)
                 return True
             except Exception as e:
-                print(f'Transaction failed on {self.db}: {e}')
+                logger.warning(f'Transaction failed on {self.db}: {e}')
                 return False
             finally:
                 connection.close()

@@ -1,3 +1,4 @@
+import logging
 import aiohttp
 import asyncio
 import html
@@ -15,6 +16,8 @@ import common.constants as const
 from common.anilist import anilist_num_entries
 from common.qbowl_db import QuestionTable
 from common.utils import find_true_name, gen_uhtml_img, img_tag, leaderboard_uhtml
+
+logger = logging.getLogger(__name__)
 
 BASE_DIFF = 3
 VG_DIFF_SCALE = 300
@@ -236,7 +239,7 @@ class TriviaGame:
             return get_task.result()
 
         if not gen_task.cancelled() and gen_task.exception():
-            print(f'Trivia question generation failed in {self.room}: {gen_task.exception()!r}')
+            logger.warning(f'Trivia question generation failed in {self.room}: {gen_task.exception()!r}')
 
         # The generator may have queued a final question as it finished.
         if not self.questions.questions.empty():
@@ -693,7 +696,7 @@ class QuestionList:
             data['api'] = data['api'].replace(const.DDRAGON_VERSION, version)
             data['img'] = data['img'].replace(const.DDRAGON_VERSION, version)
         except Exception as e:
-            print(f'Could not get latest Data Dragon version: {e!r}')
+            logger.warning(f'Could not get latest Data Dragon version: {e!r}')
 
         async with session.get(data['api'] + 'champion.json') as r:
             resp = await r.text()

@@ -7,6 +7,7 @@ import discord
 import dotenv
 import json
 import logging
+import logging.handlers
 import os
 import pandas as pd
 import random
@@ -14,7 +15,6 @@ import re
 import shlex
 import sys
 import time
-import traceback
 import websockets
 
 import common.constants as const
@@ -31,6 +31,14 @@ from common.utils import find_true_name, gen_uhtml_img, leaderboard_uhtml, birth
 from room import Room
 from trivia import check_answer
 from user import User
+
+logger = logging.getLogger(__name__)
+
+# Logs can never use more than (1 + LOG_BACKUPS) * LOG_MAX_BYTES of disk.
+LOG_MAX_BYTES = 5 * 1024 * 1024
+LOG_BACKUPS = 3
+# Longest single log message; rooms can send very large blocks of HTML.
+LOG_MAX_MESSAGE = 16 * 1024
 
 PS_SOCKET = 'wss://sim3.psim.us/showdown/websocket'
 PS_LOGIN = 'https://play.pokemonshowdown.com/api/login'
@@ -49,6 +57,63 @@ JOINLIST = [const.ANIME_ROOM,
             const.WRESTLING_ROOM,
             const.HINDISUB_ROOM]
 WS = None
+
+
+class TruncateLongMessages(logging.Filter):
+    def filter(self, record):
+        message = record.getMessage()
+        if len(message) > LOG_MAX_MESSAGE:
+            record.msg = message[:LOG_MAX_MESSAGE] + '...[truncated]'
+            record.args = ()
+        return True
+
+
+def setup_logging():
+    '''
+    Logs to a rotating set of files with a fixed maximum total size.
+    '''
+    os.makedirs(os.path.dirname(const.LOG_FILE), mode=0o700, exist_ok=True)
+
+    handler = logging.handlers.RotatingFileHandler(const.LOG_FILE, maxBytes=LOG_MAX_BYTES,
+                                                   backupCount=LOG_BACKUPS, encoding='utf-8')
+    handler.addFilter(TruncateLongMessages())
+    handler.setFormatter(logging.Formatter('%(asctime)s %(levelname)s %(name)s: %(message)s'))
+
+    logging.basicConfig(level=logging.INFO, handlers=[handler])
+    logging.captureWarnings(True)
+
+
+def incoming_for_log(msg):
+    '''
+    Returns a websocket message as one line, without login challenges
+    or the contents of PMs that aren't bot commands.
+    '''
+    lines = msg.split('\n')
+    for i, line in enumerate(lines):
+        if line.startswith('|challstr|'):
+            lines[i] = '|challstr|<redacted>'
+        elif line.startswith('|pm|'):
+            parts = line.split('|', 4)
+            if len(parts) == 5 and not parts[4].startswith(']'):
+                parts[4] = '<redacted>'
+            # Anything after this line belongs to the same PM.
+            lines = lines[:i] + ['|'.join(parts)]
+            break
+
+    return repr('\n'.join(lines))
+
+
+def outgoing_for_log(msg):
+    '''
+    Returns a message being sent as one line, without login tokens
+    or typing test answers forwarded for review.
+    '''
+    if msg.startswith('|/trn '):
+        return '|/trn <redacted>'
+    if ', They typed: ' in msg:
+        msg = msg.split(', They typed: ')[0] + ', They typed: <redacted>'
+
+    return repr(msg)
 
 
 def is_int_str(s):
@@ -145,9 +210,9 @@ class Bot:
             sucklist = pd.read_csv(const.SUCKFILE)
             if {'user', 'count'} <= set(sucklist.columns):
                 return sucklist
-            print(f'{const.SUCKFILE} is missing columns; starting a new suck list.')
+            logger.warning(f'{const.SUCKFILE} is missing columns; starting a new suck list.')
         except (FileNotFoundError, pd.errors.EmptyDataError) as e:
-            print(f'Could not read {const.SUCKFILE} ({e}); starting a new suck list.')
+            logger.warning(f'Could not read {const.SUCKFILE} ({e}); starting a new suck list.')
 
         return pd.DataFrame([[const.TIMER_USER, 0.0]], columns=['user', 'count'])
 
@@ -170,7 +235,7 @@ class Bot:
             self.igdb_token = igdb_info['access_token']
             self.igdb_token_expire = time.time() + int(igdb_info['expires_in'])
         except (aiohttp.ClientError, asyncio.TimeoutError, ValueError, KeyError, TypeError) as e:
-            print(f'Could not get an IGDB token: {e!r}')
+            logger.warning(f'Could not get an IGDB token: {e!r}')
 
 
     async def check_igdb_token(self):
@@ -270,8 +335,6 @@ class Bot:
             self.users[true_user] = {'group': None,
                                      'rooms': None,
                                      'event': asyncio.Event()}
-        else:
-            print(self.users[true_user])
 
         if not self.users[true_user]['group']:
             await self.outgoing.put(f'|/cmd userdetails {true_user}')
@@ -279,7 +342,7 @@ class Bot:
             try:
                 await asyncio.wait_for(self.users[true_user]['event'].wait(), timeout=10)
             except asyncio.TimeoutError:
-                print(f'No userdetails response for {true_user}.')
+                logger.warning(f'No userdetails response for {true_user}.')
             self.users[true_user]['event'].clear()
 
         return self.users[true_user]
@@ -376,11 +439,11 @@ class Bot:
             except asyncio.CancelledError:
                 raise
             except Exception as e:
-                print(f'Showdown connection error: {e!r}')
+                logger.warning(f'Showdown connection error: {e!r}')
             finally:
                 WS = None
 
-            print(f'Disconnected from Showdown. Reconnecting in {RECONNECT_DELAY}s.')
+            logger.warning(f'Disconnected from Showdown. Reconnecting in {RECONNECT_DELAY}s.')
             await asyncio.sleep(RECONNECT_DELAY)
 
 
@@ -393,14 +456,13 @@ class Bot:
         while True:
             msg = await self.incoming.get()
 
-            print('Message: ')
-            print(msg.encode('utf-8'))
+            logger.info('< %s', incoming_for_log(msg))
 
             # One bad message must not stop the bot from handling the rest.
             try:
                 await self.message_handler(msg)
             except Exception:
-                traceback.print_exc()
+                logger.exception('Error handling message')
 
 
     async def message_handler(self, msg):
@@ -419,8 +481,6 @@ class Bot:
         parts = msg.split('|')
 
         if len(parts) <= 1:
-            print('!!! SEE THIS !!!')
-            print(parts)
             return
 
         # Query Responses
@@ -438,8 +498,6 @@ class Bot:
                     elif self.users[true_name]['rooms'] is None:
                         self.users[true_name]['rooms'] = {}
                     self.users[true_name]['event'].set()
-            else:
-                print(parts)
 
         # Managing room userlists
         room_obj = self.roomlist.get(curr_room)
@@ -504,7 +562,7 @@ class Bot:
 
         # Login
         if parts[1] == 'challstr':
-            print('Logging in...')
+            logger.info('Logging in...')
             await self.login(parts[2] + "|" + parts[3])
         elif parts[1] == 'updateuser':
             await self.login_check(parts[2], parts[3])
@@ -772,16 +830,16 @@ class Bot:
         try:
             login_info = json.loads(resp[1:])
         except ValueError:
-            print(f'Unexpected login response: {resp[:200]}')
+            logger.warning(f'Unexpected login response: {resp[:200]}')
             return
 
         assertion = login_info.get('assertion', '')
         if not assertion or assertion.startswith(';;'):
-            print(f"Login failed: {login_info.get('actionerror') or assertion}")
+            logger.warning(f"Login failed: {login_info.get('actionerror') or assertion}")
             return
 
         await self.outgoing.put('|/trn ' + self.username + ',0,'  + str(assertion))
-        print('Sending assertion')
+        logger.info('Sending assertion')
 
 
     async def login_check(self, name, logged_in):
@@ -792,7 +850,7 @@ class Bot:
             name (str): Showdown username
             logged_in (bool): Whether or not login was successful
         '''
-        print("Logged in as: " + name)
+        logger.info('Logged in as: %s', name)
 
         # Showdown sends '0' as a guest before the login goes through, and
         # resends updateuser on other changes (e.g. avatar), so only act once.
@@ -1150,11 +1208,10 @@ class Bot:
 
                     resp = await r.text()
                     if r.status != 200:
-                        print(f'IGDB query failed on {data}: code {r.status}')
+                        logger.warning(f'IGDB query failed on {data}: code {r.status}')
                         msg = 'Game not found.'
                     else:
                         game_list = json.loads(resp)
-                        print(game_list)
                         if not game_list:
                             msg = 'Game not found.'
                         else:
@@ -1467,15 +1524,14 @@ class Bot:
                 uhtml = await gen_uhtml_img(url, height_resize=50, alt='worryclown')
                 msg = f'{room}|/adduhtml hippo-worryclown, {uhtml}'
 
-            print('Sending: ')
-            print(msg)
+            logger.info('> %s', outgoing_for_log(msg))
             if WS is None:
-                print('Not connected; dropping message.')
+                logger.warning('Not connected; dropping message.')
                 continue
             try:
                 await WS.send(msg)
             except websockets.exceptions.ConnectionClosed as e:
-                print(f'Could not send, connection closed: {e!r}')
+                logger.warning(f'Could not send, connection closed: {e!r}')
             await asyncio.sleep(0.1)
 
 
@@ -1489,12 +1545,12 @@ class DiscordBot:
             try:
                 await restart_process()
             except OSError as e:
-                traceback.print_exc()
+                logger.exception('Restart failed')
                 await ctx.followup.send(f'Restart failed: {e}', ephemeral=True)
 
         @bot.event
         async def on_ready():
-            print('Logged into discord.')
+            logger.info('Logged into discord.')
             await bot.sync_commands()
 
         self.bot = bot
@@ -1504,7 +1560,7 @@ class DiscordBot:
         try:
             await self.bot.start(os.getenv('DISCORD_TOKEN'))
         except Exception:
-            traceback.print_exc()
+            logger.exception('Discord bot stopped')
 
 
 async def restart_process():
@@ -1513,7 +1569,7 @@ async def restart_process():
     directory, environment, and log), so code and package updates on disk
     take effect. Only returns if the relaunch fails.
     '''
-    print('Restarting the bot process.')
+    logger.info('Restarting the bot process.')
 
     # Trivia scores are otherwise only saved when a game ends.
     if BOT is not None:
@@ -1522,7 +1578,7 @@ async def restart_process():
                 try:
                     room.trivia.save_scores()
                 except Exception:
-                    traceback.print_exc()
+                    logger.exception('Could not save trivia scores')
 
     # Log out of Showdown cleanly rather than just dropping the socket.
     if WS is not None:
@@ -1531,6 +1587,7 @@ async def restart_process():
         except Exception:
             pass
 
+    logging.shutdown()
     sys.stdout.flush()
     sys.stderr.flush()
     os.execv(sys.executable, [sys.executable] + sys.argv)
@@ -1553,13 +1610,13 @@ async def start_bot():
         DISCORD_BOT = DiscordBot()
         tasks.append(asyncio.create_task(DISCORD_BOT.start(), name='discord'))
     else:
-        print('DISCORD_TOKEN not set; skipping the Discord bot.')
+        logger.info('DISCORD_TOKEN not set; skipping the Discord bot.')
 
     # Runs until the process is stopped.
     await asyncio.gather(*tasks)
 
 if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO)
+    setup_logging()
     dotenv.load_dotenv()
 
     asyncio.run(start_bot())

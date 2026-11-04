@@ -57,6 +57,7 @@ WPMFILE = os.path.join(BASE_DIR, 'data/wpm.txt')
 
 ROOMDATA_DB = os.path.join(BASE_DIR, 'data/roomdata.db')
 IMG_DIMS_DB = os.path.join(BASE_DIR, 'data/img_dims.db')
+LOG_FILE = os.path.join(BASE_DIR, 'logs/hippobotas.log')
 
 STEAMFILE = os.path.join(BASE_DIR, 'data/steam.txt')
 

@@ -1,3 +1,4 @@
+import logging
 import aiohttp
 import asyncio
 import calendar
@@ -11,6 +12,8 @@ from io import BytesIO
 from PIL import Image, ImageFile
 
 from common.constants import IMG_DIMS_DB, IMG_NOT_FOUND, PASTIE_API
+
+logger = logging.getLogger(__name__)
 
 # Give up on finding an image's header after this many bytes.
 IMG_READ_LIMIT = 4 * 1024 * 1024
@@ -66,7 +69,7 @@ class ImageDimCache:
             finally:
                 conn.close()
         except sqlite3.Error as e:
-            print(f'Could not load image size cache: {e}')
+            logger.warning(f'Could not load image size cache: {e}')
 
 
     def lookup(self, url):
@@ -91,7 +94,7 @@ class ImageDimCache:
             finally:
                 conn.close()
         except sqlite3.Error as e:
-            print(f'Could not save image size for {url}: {e}')
+            logger.warning(f'Could not save image size for {url}: {e}')
 
 
     def recently_failed(self, url):
@@ -134,7 +137,7 @@ class ImageDimCache:
         try:
             async with self.session.get(url) as r:
                 if r.status != 200:
-                    print(f'Image request for {url} returned {r.status}.')
+                    logger.warning(f'Image request for {url} returned {r.status}.')
                     return (0, 0)
 
                 async for chunk in r.content.iter_chunked(16 * 1024):
@@ -149,11 +152,11 @@ class ImageDimCache:
                     if parser.image or read >= IMG_READ_LIMIT:
                         break
         except Exception as e:
-            print(f'Could not measure image {url}: {e!r}')
+            logger.warning(f'Could not measure image {url}: {e!r}')
             return (0, 0)
 
         if not parser.image:
-            print(f'Could not read an image header from {url}.')
+            logger.warning(f'Could not read an image header from {url}.')
             return (0, 0)
 
         return parser.image.size
@@ -208,7 +211,7 @@ def img_dims_from_uri(uri):
         im = Image.open(file)
         dims = im.size
     except Exception as e:
-        print(e)
+        logger.warning(e)
 
     IMG_DIMS.store(uri, dims)
     return dims
@@ -285,11 +288,11 @@ async def pastie_upload(text):
         async with aiohttp.ClientSession(timeout=timeout) as session:
             async with session.post(PASTIE_API, data=text.encode('utf-8')) as r:
                 if r.status != 200:
-                    print(f'pastie.io upload returned {r.status}.')
+                    logger.warning(f'pastie.io upload returned {r.status}.')
                     return None
                 key = (await r.json(content_type=None))['key']
     except (aiohttp.ClientError, asyncio.TimeoutError, ValueError, KeyError, TypeError) as e:
-        print(f'pastie.io upload failed: {e!r}')
+        logger.warning(f'pastie.io upload failed: {e!r}')
         return None
 
     return f'https://pastie.io/raw/{key}'

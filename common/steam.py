@@ -1,3 +1,4 @@
+import logging
 import aiohttp
 import asyncio
 import json
@@ -10,6 +11,8 @@ from common.constants import IMG_NOT_FOUND, STEAM_API, STEAMFILE
 from common.uhtml import UserInfo
 from common.utils import find_true_name, gen_uhtml_img
 
+logger = logging.getLogger(__name__)
+
 async def get_steam_user(username, retries=2):
     async with aiohttp.ClientSession(trust_env=True) as session:
         id64 = None
@@ -19,7 +22,7 @@ async def get_steam_user(username, retries=2):
                 resp = await r.text()
 
                 if r.status != 200:
-                    print(f'Steam prelim check returned code {r.status}.')
+                    logger.warning(f'Steam prelim check returned code {r.status}.')
                     await asyncio.sleep(0.5)
                     continue
 
@@ -43,7 +46,7 @@ async def get_steam_user(username, retries=2):
                     userdata = json.loads(resp)
 
                     if r.status != 200:
-                        print(f' Steam prelim check returned code {r.status}.')
+                        logger.warning(f' Steam prelim check returned code {r.status}.')
                         await asyncio.sleep(0.5)
                         continue
 
