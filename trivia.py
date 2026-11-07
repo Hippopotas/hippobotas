@@ -878,6 +878,46 @@ class DiscordTriviaGame(TriviaGame):
         self.showing = False
         super().__init__(f'{const.DISCORD_TRIVIA_PREFIX}{guild_id}', bot)
 
+        # Scores are keyed by username, which never changes hands; this maps
+        # them to the last display name seen, for when a lookup fails.
+        self.names_file = f'trivia/{self.room}_names.json'
+        try:
+            with open(self.names_file) as f:
+                self.names = json.load(f)
+        except (FileNotFoundError, json.JSONDecodeError):
+            self.names = {}
+
+    def remember_name(self, member):
+        if self.names.get(member.name) == member.display_name:
+            return
+        self.names[member.name] = member.display_name
+        try:
+            with open(self.names_file, 'w') as f:
+                json.dump(self.names, f)
+        except OSError as e:
+            logger.warning(f'Could not save Discord trivia names: {e!r}')
+
+    async def display_names(self, guild, users):
+        '''
+        Looks up the current display names of users (by username). Falls
+        back to the last name seen, then the username.
+        '''
+        async def lookup(user):
+            try:
+                for member in await guild.query_members(query=user, limit=10):
+                    if member.name == user:
+                        self.remember_name(member)
+                        return
+            except Exception as e:
+                logger.warning(f'Could not look up Discord member {user}: {e!r}')
+
+        if guild is not None and users:
+            try:
+                await asyncio.wait_for(asyncio.gather(*(lookup(u) for u in users)), timeout=4)
+            except asyncio.TimeoutError:
+                pass
+        return {u: self.names.get(u, u) for u in users}
+
     def reset_scoreboard(self, length=0):
         # The Discord leaderboard is all-time.
         pass
@@ -917,12 +957,22 @@ class DiscordTriviaGame(TriviaGame):
                 async with session.get(url) as r:
                     if r.status != 200:
                         return None
-                    data = await r.content.read(self.MAX_IMG_BYTES + 1)
+                    expected = r.content_length
+                    if expected and expected > self.MAX_IMG_BYTES:
+                        return None
+                    # read(n) only returns what has arrived so far, so keep
+                    # going until the whole image is in.
+                    data = bytearray()
+                    async for chunk in r.content.iter_chunked(64 * 1024):
+                        data.extend(chunk)
+                        if len(data) > self.MAX_IMG_BYTES:
+                            return None
         except (aiohttp.ClientError, asyncio.TimeoutError) as e:
             logger.warning(f'Could not download trivia image {url}: {e!r}')
             return None
 
-        if len(data) > self.MAX_IMG_BYTES:
+        if not data or (expected and len(data) != expected):
+            logger.warning(f'Incomplete trivia image {url}: got {len(data)} of {expected} bytes')
             return None
         ext = url.rsplit('?', 1)[0].rsplit('.', 1)[-1].lower()
         if ext not in ('jpg', 'jpeg', 'png', 'gif', 'webp'):
@@ -1027,11 +1077,13 @@ class DiscordTriviaGame(TriviaGame):
 
         self.finish_question()
         self.update_scores(message.author.name)
+        self.remember_name(message.author)
         await self.say(f'**{discord.utils.escape_markdown(message.author.display_name)}** wins. '
                        f'The answer was **{discord.utils.escape_markdown(answer)}**.')
 
-    def leaderboard_embed(self, title, rows):
-        lines = [f'**{i + 1}.** {discord.utils.escape_markdown(str(user))} \u2014 {int(score)} pts'
+    async def leaderboard_embed(self, title, rows, guild):
+        names = await self.display_names(guild, [str(user) for user, _ in rows])
+        lines = [f'**{i + 1}.** {discord.utils.escape_markdown(names[str(user)])} \u2014 {int(score)} pts'
                  for i, (user, score) in enumerate(rows)]
         return discord.Embed(title=title, description='\n'.join(lines) or 'No scores yet.',
                              color=self.EMBED_COLOR)
@@ -1039,7 +1091,8 @@ class DiscordTriviaGame(TriviaGame):
     async def show_results(self):
         rows = sorted(self.game_scores.items(), key=lambda x: x[1], reverse=True)[:10]
         title = 'Quizbowl Results' if self.quizbowl else 'Trivia Results'
-        embed = self.leaderboard_embed(title, rows)
+        guild = getattr(self.channel, 'guild', None)
+        embed = await self.leaderboard_embed(title, rows, guild)
         if not rows:
             embed.description = 'No one scored this game.'
         embed.set_footer(text='This trivia game has ended. Use /trivia leaderboard for all-time scores.')

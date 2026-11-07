@@ -1692,19 +1692,23 @@ class DiscordBot:
             if not await require_channel(ctx):
                 return
             member = user or ctx.author
+            game.remember_name(member)
             _, score = game.userscore(member.name)
             name = discord.utils.escape_markdown(member.display_name)
             if score is None:
-                await ctx.respond(f"{name} hasn't scored in trivia yet.")
+                await ctx.respond(f"{name} hasn't scored in trivia yet.", ephemeral=True)
             else:
-                await ctx.respond(f'{name} has earned {int(score)} points in trivia.')
+                await ctx.respond(f'{name} has earned {int(score)} points in trivia.', ephemeral=True)
 
         @trivia.command(name='leaderboard', description='Show the all-time trivia leaderboard.')
         async def trivia_leaderboard(ctx, count: discord.Option(int, 'How many places to show',
                                                                 min_value=1, max_value=10, default=5)):
             if not await require_channel(ctx):
                 return
-            await ctx.respond(embed=game.leaderboard_embed('Trivia Leaderboard', game.leaderboard(n=count)))
+            # Looking up display names can take a moment.
+            await ctx.defer(ephemeral=True)
+            embed = await game.leaderboard_embed('Trivia Leaderboard', game.leaderboard(n=count), ctx.guild)
+            await ctx.respond(embed=embed, ephemeral=True)
 
         @bot.event
         async def on_message(message):
