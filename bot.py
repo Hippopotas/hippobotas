@@ -1535,12 +1535,23 @@ class Bot:
             await asyncio.sleep(0.1)
 
 
+def is_discord_trivia_staff(member):
+    ''' Driver and above (or the server owner) in the Discord trivia server. '''
+    guild = getattr(member, 'guild', None)
+    if guild is not None and guild.owner_id == member.id:
+        return True
+    return any(role.name in const.DISCORD_TRIVIA_ROLES for role in getattr(member, 'roles', []))
+
+
 class DiscordBot:
     def __init__(self):
         bot = discord.Bot(intents=discord.Intents.default())
 
         @bot.command(description="Restarts the bot, reloading its code.", guild_ids=[218560071540408320, 1567948160020643870])
         async def restart_ps(ctx):
+            if ctx.guild_id == const.DISCORD_TRIVIA_GUILD and not is_discord_trivia_staff(ctx.author):
+                await ctx.send_response('Only Drivers and above can do that.', ephemeral=True)
+                return
             await ctx.send_response("Restarting bot.", ephemeral=True)
             try:
                 await restart_process()

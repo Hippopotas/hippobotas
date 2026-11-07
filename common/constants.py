@@ -75,6 +75,10 @@ METRONOME_BATTLE = 'gen9metronomebattle'
 
 OWNER = 'hippopotas'
 
+# Second Discord server, and the roles allowed to run staff commands there.
+DISCORD_TRIVIA_GUILD = 1567948160020643870
+DISCORD_TRIVIA_ROLES = {'Driver', 'Head Driver', 'Moderator', 'Owner'}
+
 GACHAS = ['fgo']
 
 LEAGUE_CATS = ['skins', 'spells', 'items']
