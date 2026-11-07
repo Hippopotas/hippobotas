@@ -1539,7 +1539,7 @@ class DiscordBot:
     def __init__(self):
         bot = discord.Bot(intents=discord.Intents.default())
 
-        @bot.command(description="Restarts the bot, reloading its code.", guild_ids=[218560071540408320])
+        @bot.command(description="Restarts the bot, reloading its code.", guild_ids=[218560071540408320, 1567948160020643870])
         async def restart_ps(ctx):
             await ctx.send_response("Restarting bot.", ephemeral=True)
             try:
