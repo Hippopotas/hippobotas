@@ -27,7 +27,6 @@ UHTML_COMMANDS = ['plebs', 'calendar', 'birthday', 'wpm_top',
 
 TIMER_USER = 'T*'
 
-JIKAN_API = 'https://api.jikan.moe/v4/'
 MAL_API = 'https://api.myanimelist.net/v2/'
 DEX_API = 'https://api.mangadex.org/'
 ANILIST_API = 'https://graphql.anilist.co/'

@@ -144,7 +144,7 @@ class SimpleCommand(Command):
 
         elif self.command == 'mal_add':
             mal_user = ''.join(self.args)
-            self.msg += await self.bot.mal_man.set_user(self.true_caller, mal_user, self.bot.jikan_man)
+            self.msg += await self.bot.mal_man.set_user(self.true_caller, mal_user)
 
         elif self.command == 'wpm_reset':
             try:
@@ -327,7 +327,7 @@ class UhtmlCommand(Command):
                     self.msg = return_msg
 
             else:
-                return_msg = await self.bot.mal_man.show_user(true_mal_user, self.bot.jikan_man)
+                return_msg = await self.bot.mal_man.show_user(true_mal_user)
 
                 if is_uhtml(return_msg):
                     self.msg += f'hippo-{true_mal_user}mal, {return_msg}'

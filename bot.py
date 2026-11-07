@@ -189,7 +189,6 @@ class Bot:
         self.gachaman = GachaManager()
 
         self.anilist_man = ApiManager(0.7)
-        self.jikan_man = ApiManager(1)
         self.mal_man = MalManager(self.roomdata_man)
 
         self.mal_rooms = [const.ANIME_ROOM, const.PEARY_ROOM]

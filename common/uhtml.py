@@ -76,7 +76,7 @@ class UserInfo(InfoBox):
                     self.html.td(rowspan=3,
                                  style=userpic_style,
                                  _t=kwargs['profile_pic'])
-                    self.html.td(style='text-align:center', _t='Rand Fav')
+                    self.html.td(style='text-align:center', _t=kwargs.get('fav_label', 'Rand Fav'))
 
                     with self.html.td(rowspan=3, style='font-size:10px; vertical-align:middle'):
                         self.html(f"""Completed: {kwargs['anime_completed']}""")
@@ -90,7 +90,7 @@ class UserInfo(InfoBox):
                         self.html.br()
                         self.html(f"""Mean Score: {kwargs['anime_score']}""")
 
-                    self.html.td(style='text-align:center', _t='Rand Fav')
+                    self.html.td(style='text-align:center', _t=kwargs.get('fav_label', 'Rand Fav'))
                     with self.html.td(rowspan=3, style='font-size:10px; vertical-align:middle; padding-right:5px'):
                         self.html(f"""Completed: {kwargs['manga_completed']}""")
                         self.html.br()

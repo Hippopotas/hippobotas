@@ -1,6 +1,7 @@
 import logging
 import aiohttp
 import asyncio
+import html
 import os
 import random
 import re
@@ -14,8 +15,12 @@ from common.utils import find_true_name, gen_uhtml_img
 
 logger = logging.getLogger(__name__)
 
-# Seconds to wait on MAL or Jikan before giving up on a request.
+# Seconds to wait on MAL before giving up on a request.
 MAL_TIMEOUT = 15
+# How long a ]mal profile card is reused before its lists are fetched again.
+PROFILE_CACHE_TTL = 10 * 60
+# MAL usernames are 2-16 letters, digits, underscores or hyphens.
+MAL_USERNAME = re.compile(r'^[A-Za-z0-9_-]{2,16}$')
 # How often the background task looks for lists to refresh. Lists are
 # refreshed once they're a day old.
 REFRESH_INTERVAL = 60 * 60
@@ -30,37 +35,9 @@ BACKGROUND_REQUEST_GAP = 2
 LIST_STATUSES = {'anime': ('watching', 'completed'),
                  'manga': ('reading', 'completed')}
 
-JIKAN_DOWN_MSG = ('MAL profiles can\'t be looked up right now because the Jikan service '
-                  'isn\'t responding. Please try again later.')
-
-
-class MalUnavailable(Exception):
-    """ MAL or Jikan couldn't be reached, or returned an error. """
-
-
-async def jikan_user_info(username, jikan_man):
-    '''
-    Gets a user's full profile from Jikan.
-
-    Returns None if the user doesn't exist, and raises MalUnavailable
-    if Jikan can't be reached.
-    '''
-    async with jikan_man.lock():
-        try:
-            timeout = aiohttp.ClientTimeout(total=MAL_TIMEOUT)
-            async with aiohttp.ClientSession(timeout=timeout) as session:
-                url = f'{const.JIKAN_API}users/{username}/full'
-                async with session.get(url) as r:
-                    if r.status == 404:
-                        return None
-
-                    user_data = await r.json(content_type=None)
-                    if r.status != 200 or not user_data or 'data' not in user_data:
-                        raise MalUnavailable(f'Jikan returned {r.status} for {username}')
-
-                    return user_data['data']
-        except (aiohttp.ClientError, asyncio.TimeoutError, ValueError) as e:
-            raise MalUnavailable(f'Could not reach Jikan for {username}: {e!r}') from e
+MAL_DOWN_MSG = "Couldn't reach MAL right now. Please try again later."
+# Fields wanted for every entry when reading a whole list for a profile.
+PROFILE_FIELDS = 'list_status,nsfw'
 
 
 def mal_url_info(url):
@@ -91,6 +68,8 @@ class MalManager(ApiManager):
         self.failed_refreshes = {}
         # Lists whose MAL account no longer exists.
         self.missing_accounts = set()
+        # Recently built ]mal profile cards: lowercase MAL name -> (time, html).
+        self.profile_cache = {}
 
 
     async def ensure_tables(self):
@@ -384,13 +363,24 @@ class MalManager(ApiManager):
         return f"Couldn't load {ps_user}'s MAL list right now. Please try again later."
 
 
-    async def set_user(self, ps_user, mal_user, jikan_man):
-        try:
-            if await jikan_user_info(mal_user, jikan_man) is None:
-                return f"Could not find {mal_user} on MAL."
-        except MalUnavailable as e:
-            logger.warning(e)
-            return JIKAN_DOWN_MSG
+    async def set_user(self, ps_user, mal_user):
+        if not mal_user:
+            return 'Usage: ]mal_add [MAL username]'
+        if not MAL_USERNAME.match(mal_user):
+            return f"{mal_user} isn't a valid MAL username."
+
+        # MAL's API has no public profile lookup, but a user's list answers
+        # 404 if the account doesn't exist and 403 if the list is private.
+        code, _ = await self.api_request(f'{const.MAL_API}users/{mal_user}/animelist',
+                                         params={'limit': 1})
+        if code == 404:
+            return f"Could not find {mal_user} on MAL."
+        if code not in (200, 403):
+            return MAL_DOWN_MSG
+        private_note = ''
+        if code == 403:
+            private_note = (f" Their anime list is private, so ]mal and rolls won't work "
+                            f"until it's made public.")
 
         current_user = await self.mal_of_ps(ps_user)
         if current_user == mal_user:
@@ -411,67 +401,133 @@ class MalManager(ApiManager):
                                       "VALUES (?, ?)", (ps_user, mal_user))
 
         asyncio.create_task(self.update_user(ps_user, force=True, background=False))
+        self.missing_accounts.discard(list_table(mal_user))
 
-        return f"Set {ps_user}'s MAL to {mal_user}."
+        return f"Set {ps_user}'s MAL to {mal_user}.{private_note}"
 
 
-    async def show_user(self, ps_user, jikan_man):
+    async def fetch_full_list(self, mal_user, medium):
+        '''
+        Every entry of a user's anime or manga list, with their status,
+        score and progress.
+
+        Returns (status code, entries); entries is None on failure.
+        '''
+        url = f'{const.MAL_API}users/{mal_user}/{medium}list?limit=1000&fields={PROFILE_FIELDS}'
+        entries = []
+        while url:
+            code, list_data = await self.api_request(url)
+            if code != 200 or 'data' not in list_data:
+                return code, None
+            entries.extend(list_data['data'])
+
+            url = list_data.get('paging', {}).get('next')
+            if url and 'fields=' not in url:
+                url += f'&fields={PROFILE_FIELDS}'
+        return 200, entries
+
+
+    @staticmethod
+    def list_stats(entries, medium):
+        ''' The profile card's numbers, worked out from a list. '''
+        current, progress = (('watching', 'num_episodes_watched') if medium == 'anime'
+                             else ('reading', 'num_chapters_read'))
+        statuses = [e.get('list_status', {}) for e in entries]
+        scores = [s.get('score', 0) for s in statuses if s.get('score')]
+        return {'completed': sum(s.get('status') == 'completed' for s in statuses),
+                'current': sum(s.get('status') == current for s in statuses),
+                'progress': sum(s.get(progress) or 0 for s in statuses),
+                'mean': f'{sum(scores) / len(scores):.2f}' if scores else 'N/A'}
+
+
+    @staticmethod
+    def top_rated(entries):
+        ''' A random pick among the user's highest-scored SFW series. '''
+        sfw = [e for e in entries if e['node'].get('nsfw') == 'white']
+        scored = [e for e in sfw if e.get('list_status', {}).get('score')]
+        if scored:
+            best = max(e['list_status']['score'] for e in scored)
+            return random.choice([e for e in scored if e['list_status']['score'] == best])
+        completed = [e for e in sfw if e.get('list_status', {}).get('status') == 'completed']
+        return random.choice(completed or sfw) if (completed or sfw) else None
+
+
+    async def series_cell(self, entry, medium, height):
+        ''' (title, link, image html) for a list entry, or placeholders. '''
+        if entry is None:
+            return 'None', '', await gen_uhtml_img(const.IMG_NOT_FOUND, height_resize=height)
+        node = entry['node']
+        img = (node.get('main_picture') or {}).get('medium') or const.IMG_NOT_FOUND
+        return (html.escape(node['title']), f'https://myanimelist.net/{medium}/{node["id"]}',
+                await gen_uhtml_img(img, height_resize=height))
+
+
+    async def show_user(self, ps_user):
         mal_user = await self.mal_of_ps(ps_user)
         if not mal_user:
             return f"{ps_user} does not have a linked MAL account."
 
-        try:
-            user_data = await jikan_user_info(mal_user, jikan_man)
-        except MalUnavailable as e:
-            logger.warning(e)
-            return JIKAN_DOWN_MSG
+        cached = self.profile_cache.get(mal_user.lower())
+        if cached and time.time() - cached[0] < PROFILE_CACHE_TTL:
+            return cached[1]
 
-        if user_data is None:
-            return f"{mal_user} wasn't found on MAL. They may need to update their account with ]mal_add."
+        # MAL's API can't look up other users' profiles, so the card is
+        # built from their lists: stats, top-rated picks, latest update.
+        lists = {}
+        for medium in ('anime', 'manga'):
+            code, entries = await self.fetch_full_list(mal_user, medium)
+            if code == 404:
+                self.missing_accounts.add(list_table(mal_user))
+                return (f"{mal_user} wasn't found on MAL. "
+                        f"They may need to update their account with ]mal_add.")
+            if code == 403:
+                lists[medium] = None    # This list is private.
+            elif entries is None:
+                return MAL_DOWN_MSG
+            else:
+                lists[medium] = entries
 
-        # Set image
-        img_url = const.IMG_NOT_FOUND
-        if user_data['images']:
-            img_url = user_data['images']['jpg']['image_url']
-        img_uhtml = await gen_uhtml_img(img_url, height_resize=100, width_resize=125)
+        if lists['anime'] is None and lists['manga'] is None:
+            return f"{mal_user}'s MAL lists are private, so their profile can't be shown."
 
-        # Set favorite series
-        top_series_uhtml = {'anime': (), 'manga': ()}
-        for medium in top_series_uhtml:
-            top_series = 'None'
-            top_series_url = ''
-            top_series_img = const.IMG_NOT_FOUND
+        # Remember the NSFW ratings seen, which rolls and trivia also use.
+        seen = [(medium, e['node']['id'], e['node']['title'], e['node'].get('nsfw', 'gray'))
+                for medium, entries in lists.items() if entries for e in entries]
+        if seen:
+            await self.store_series(seen)
 
-            fav_series = user_data['favorites'][medium]
-            while fav_series:
-                rand_fav = random.choice(fav_series)
-                is_nsfw = await self.is_nsfw(medium, rand_fav['mal_id'])
-                if is_nsfw:
-                    fav_series.remove(rand_fav)
-                else:
-                    top_series = rand_fav['title']
-                    top_series_url = rand_fav['url']
-                    top_series_img = rand_fav['images']['jpg']['small_image_url']
-                    break
+        kwargs = {}
+        for medium, prefix in (('anime', 'anime'), ('manga', 'manga')):
+            entries = lists[medium]
+            if entries is None:
+                stats = dict.fromkeys(('completed', 'current', 'progress', 'mean'), 'Private')
+            else:
+                stats = self.list_stats(entries, medium)
+            title, link, img = await self.series_cell(self.top_rated(entries or []), medium, 64)
+            kwargs.update({f'{prefix}_completed': stats['completed'],
+                           f'{prefix}_title': title, f'{prefix}_link': link, f'{prefix}_img': img})
+            if medium == 'anime':
+                kwargs.update(anime_watching=stats['current'], ep_watched=stats['progress'],
+                              anime_score=stats['mean'])
+            else:
+                kwargs.update(manga_reading=stats['current'], chp_read=stats['progress'],
+                              manga_score=stats['mean'])
 
-            top_series_uhtml[medium] = (top_series, top_series_url,
-                                        await gen_uhtml_img(top_series_img, height_resize=64))
+        # In place of the avatar (which the API doesn't give): the SFW
+        # series they most recently updated.
+        recent = [(e.get('list_status', {}).get('updated_at', ''), medium, e)
+                  for medium, entries in lists.items() if entries for e in entries
+                  if e['node'].get('nsfw') == 'white']
+        if recent:
+            _, medium, entry = max(recent, key=lambda r: r[0])
+            title, link, img = await self.series_cell(entry, medium, 100)
+            kwargs['profile_pic'] = (f'{img}<br><span style="font-size:9px">Latest: '
+                                     f'<a href="{link}" style="color:#8311a6">{title}</a></span>')
+        else:
+            kwargs['profile_pic'] = await gen_uhtml_img(const.IMG_NOT_FOUND, height_resize=100)
+        kwargs['fav_label'] = 'Top Rated'
 
-        user_info = UserInfo(user_data['username'], user_data['url'], 'mal')
-        kwargs = {'profile_pic': img_uhtml,
-                  'anime_completed': user_data['statistics']['anime']['completed'],
-                  'anime_watching': user_data['statistics']['anime']['watching'],
-                  'ep_watched': user_data['statistics']['anime']['episodes_watched'],
-                  'anime_score': user_data['statistics']['anime']['mean_score'],
-                  'manga_completed': user_data['statistics']['manga']['completed'],
-                  'manga_reading': user_data['statistics']['manga']['reading'],
-                  'chp_read': user_data['statistics']['manga']['chapters_read'],
-                  'manga_score': user_data['statistics']['manga']['mean_score'],
-                  'anime_img': top_series_uhtml['anime'][2],
-                  'manga_img': top_series_uhtml['manga'][2],
-                  'anime_link': top_series_uhtml['anime'][1],
-                  'anime_title': top_series_uhtml['anime'][0],
-                  'manga_link': top_series_uhtml['manga'][1],
-                  'manga_title': top_series_uhtml['manga'][0]}
-
-        return user_info.mal_user(**kwargs)
+        user_info = UserInfo(mal_user, f'https://myanimelist.net/profile/{mal_user}', 'mal')
+        card = user_info.mal_user(**kwargs)
+        self.profile_cache[mal_user.lower()] = (time.time(), card)
+        return card
