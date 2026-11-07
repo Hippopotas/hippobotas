@@ -33,6 +33,29 @@ def mal_arg_parser(s, caller):
     return args
 
 
+def match_categories(words, all_categories):
+    '''
+    Joins words into known categories, so multi-word ones like
+    "slice of life" or "tv short" work, preferring the longest match
+    ("tv short" is TV_SHORT, not TV and "short").
+
+    Returns None if some words don't form a known category.
+    '''
+    words = [find_true_name(w) for w in words]
+    matched = []
+    i = 0
+    while i < len(words):
+        for j in range(len(words), i, -1):
+            joined = ''.join(words[i:j])
+            if joined in all_categories:
+                matched.append(joined)
+                i = j
+                break
+        else:
+            return None
+    return matched
+
+
 def trivia_arg_parser(s):
     '''
     Parses a trivia start invocation as if it were CLI input.
@@ -58,26 +81,18 @@ def trivia_arg_parser(s):
 
         all_categories = ['all', 'mangadex'] + const.ANILIST_GENRES + const.ANILIST_MEDIA + \
                          list(const.ANILIST_TAGS.keys()) + const.LEAGUE_CATS
-        all_categories = list(map(find_true_name, all_categories))
-        fixed_categories = []
-        arg_categories = iter(args.categories)
+        all_categories = set(map(find_true_name, all_categories))
 
-        category = next(arg_categories, None)
-        while category:
-            category = find_true_name(category)
+        args.categories = match_categories(args.categories, all_categories)
+        if args.categories is None:
+            return
+        if not args.categories:
+            args.categories = ['all']
 
-            if category in all_categories:
-                fixed_categories.append(category)
-                category = next(arg_categories, None)
-
-            else:
-                add_on = next(arg_categories, None)
-                if add_on is None:
-                    return
-
-                category += add_on
-
-        args.categories = fixed_categories
+        if args.excludecats:
+            args.excludecats = match_categories(args.excludecats, all_categories)
+            if args.excludecats is None:
+                return
     # Incorrectly formatted input results in args = None
     except SystemExit:
         return

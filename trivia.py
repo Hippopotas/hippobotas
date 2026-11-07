@@ -6,6 +6,7 @@ import html
 import io
 import json
 import math
+import os
 import pandas as pd
 import random
 import re
@@ -15,13 +16,20 @@ from peewee import fn
 
 import common.constants as const
 
-from common.anilist import anilist_num_entries
+from common.anilist import anilist_num_entries, anilist_post
 from common.qbowl_db import QuestionTable
 from common.utils import find_true_name, gen_uhtml_img, img_tag, leaderboard_uhtml
 
 logger = logging.getLogger(__name__)
 
 BASE_DIFF = 3
+# Anime/manga questions are picked from pages of this many series, fetched
+# once per game and reused, so skipping duplicates, NSFW series or ones
+# without a cover doesn't cost another AniList request.
+AM_PAGE_SIZE = 50
+# Rolls to try before giving up on a question (e.g. a small category that
+# has run out of usable series).
+AM_MAX_ROLLS = 10
 VG_DIFF_SCALE = 300
 UHTML_NAME = 'trivia'
 PIC_SIZE = 225
@@ -106,32 +114,61 @@ class TriviaGame:
         self.active = False
         self.stopping = False
         self.run_task = None
+        self.ending = False
         self.q_active = asyncio.Event()
         self.correct = asyncio.Event()
         self.answers = []
+        # Increases with every question (and when a game ends), so timers
+        # and reveals left over from an earlier question know to stop.
+        self.q_id = 0
+        self.tasks = set()
 
         self.bot = bot
         self.room = room
         self.questions = QuestionList(self.room, self.bot)
 
-        try:
-            self.scoreboard = pd.read_csv('trivia/{}.txt'.format(self.room))
-        except FileNotFoundError:
-            self.scoreboard = pd.DataFrame(columns=['user', 'score'])
+        self.score_file = 'trivia/{}.txt'.format(self.room)
+        self.scoreboard = self.load_scores()
         self.reset_scoreboard()
 
-    async def autoskip(self, skip_time):
-        answer = self.answers[0]
-        while self.active and self.answers and self.answers[0] == answer:
-            await self.q_active.wait()
-            self.q_active.clear()
+    def load_scores(self):
+        '''
+        Reads the saved scores. A damaged file is set aside (as .corrupt)
+        rather than stopping the room from loading.
+        '''
+        try:
+            scoreboard = pd.read_csv(self.score_file)
+            if list(scoreboard.columns[:2]) != ['user', 'score']:
+                raise ValueError(f'unexpected columns {list(scoreboard.columns)}')
+            scoreboard = scoreboard[['user', 'score']].copy()
+            scoreboard['score'] = pd.to_numeric(scoreboard['score'], errors='coerce').fillna(0)
+            return scoreboard
+        except FileNotFoundError:
+            pass
+        except (pd.errors.EmptyDataError, pd.errors.ParserError, ValueError, UnicodeDecodeError) as e:
+            logger.warning(f'Trivia scores in {self.score_file} are unreadable ({e!r}); starting fresh.')
+            try:
+                os.replace(self.score_file, self.score_file + '.corrupt')
+            except OSError:
+                pass
+        return pd.DataFrame(columns=['user', 'score'])
 
-            await asyncio.sleep(skip_time)
+    def spawn(self, coro):
+        ''' Starts a background task, keeping a reference so it isn't lost. '''
+        task = asyncio.create_task(coro)
+        self.tasks.add(task)
+        task.add_done_callback(self.tasks.discard)
+        return task
 
-            if len(self.answers) == 0:
-                break
+    def question_live(self, q_id):
+        return self.active and self.q_id == q_id and bool(self.answers)
 
-            await self.time_up(answer)
+    async def autoskip(self, skip_time, q_id):
+        # Wait until the question is actually shown, then start the clock.
+        await self.q_active.wait()
+        await asyncio.sleep(skip_time)
+        if self.question_live(q_id):
+            await self.time_up(self.answers[0])
 
     async def time_up(self, answer):
         '''
@@ -155,12 +192,11 @@ class TriviaGame:
         t_title = 'Quizbowl Leaderboard' if self.quizbowl else 'Trivia Leaderboard'
         await self.bot.outgoing.put(f"{self.room}|/adduhtml {leaderboard_uhtml(self.leaderboard(), t_title)}")
 
-    async def quizbowl_question(self, question, skip_time):
-        answer = self.answers[0]
+    async def quizbowl_question(self, question, skip_time, q_id):
         curr_output = []
         remaining = iter(question.split(' '))
         done = False
-        while self.active and self.answers and self.answers[0] == answer:
+        while self.question_live(q_id):
             for _ in range(1):
                 try:
                     word = next(remaining)
@@ -174,7 +210,8 @@ class TriviaGame:
             await self.bot.outgoing.put(f'{self.room}|/adduhtml {UHTML_NAME}, {curr_str}')
 
             if done:
-                asyncio.create_task(self.autoskip(skip_time))
+                if skip_time:
+                    self.spawn(self.autoskip(skip_time, q_id))
                 return
             await asyncio.sleep(0.3)
 
@@ -220,20 +257,23 @@ class TriviaGame:
             for _ in range(n):
                 await asyncio.sleep(5)
 
+                # Waits here, without starting any timer, while questions are
+                # still being fetched (e.g. when AniList asks us to slow down).
                 curr_question = await self.next_question(gen_task)
                 if curr_question is None:
                     await self.say('Could not generate any more questions.')
                     break
+                self.q_id += 1
+                q_id = self.q_id
                 self.answers = curr_question[1]
-                # A question answered before its timer started leaves this set,
-                # which would start the next question's timer too early.
+                self.correct.clear()
                 self.q_active.clear()
 
                 if quizbowl:
-                    asyncio.create_task(self.quizbowl_question(curr_question[0], autoskip))
+                    self.spawn(self.quizbowl_question(curr_question[0], autoskip, q_id))
                 else:
                     if autoskip:
-                        asyncio.create_task(self.autoskip(autoskip))
+                        self.spawn(self.autoskip(autoskip, q_id))
 
                     await self.show_question(curr_question)
 
@@ -244,14 +284,30 @@ class TriviaGame:
         except asyncio.CancelledError:
             gen_task.cancel()
             if not self.stopping:
-                self.questions = QuestionList(self.room, self.bot)
-                self.answers = []
-                self.active = False
-                await self.say('Trivia could not be run with those settings.')
+                reason = self.questions.error or 'Trivia could not be run with those settings.'
+                self.reset_game()
+                await self.say(reason)
             raise
+        except Exception:
+            # Without this, an unexpected error would leave the game marked as
+            # running, blocking new games until a restart.
+            logger.exception(f'Trivia game in {self.room} failed')
+            gen_task.cancel()
+            self.reset_game()
+            try:
+                await self.say('Trivia stopped because of an error.')
+            except Exception:
+                pass
+            return
 
         gen_task.cancel()
         await self.end()
+
+    def reset_game(self):
+        self.questions = QuestionList(self.room, self.bot)
+        self.answers = []
+        self.q_id += 1
+        self.active = False
 
     async def next_question(self, gen_task):
         '''
@@ -285,25 +341,44 @@ class TriviaGame:
 
     def save_scores(self):
         self.scoreboard = self.scoreboard.sort_values('score', ascending=False)
-        self.scoreboard.to_csv('trivia/{}.txt'.format(self.room), index=False)
+        # Write to a temporary file and swap it in, so a crash mid-save
+        # can't leave a half-written score file.
+        tmp = self.score_file + '.tmp'
+        try:
+            self.scoreboard.to_csv(tmp, index=False)
+            os.replace(tmp, self.score_file)
+        except OSError as e:
+            logger.warning(f'Could not save trivia scores to {self.score_file}: {e!r}')
 
     async def end(self):
-        self.save_scores()
+        if self.ending:
+            return
+        self.ending = True
+        try:
+            self.save_scores()
 
-        self.questions.ended = True
-        while not self.questions.ending_acknowledged:
-            await asyncio.sleep(0.1)
-        self.questions = QuestionList(self.room, self.bot)
+            self.questions.ended = True
+            while not self.questions.ending_acknowledged:
+                await asyncio.sleep(0.1)
+            self.questions = QuestionList(self.room, self.bot)
 
-        await self.show_results()
-
-        self.active = False
+            await self.show_results()
+        except Exception:
+            logger.exception(f'Could not finish the trivia game in {self.room}')
+        finally:
+            # However the ending went, the game is over.
+            self.answers = []
+            self.q_id += 1
+            self.active = False
+            self.ending = False
 
     async def stop(self):
         '''
         Ends a running game early. The run loop is cancelled so that it
         doesn't keep consuming questions meant for the next game.
         '''
+        if self.ending:
+            return
         self.stopping = True
         try:
             if (self.run_task and not self.run_task.done()
@@ -350,8 +425,18 @@ class QuestionList:
         self.series_exist = True
         self.category_params = []
         self.max_rank = 0
+        self.am_pages = {}
         self.ended = False
         self.ending_acknowledged = True
+        # Why generation gave up, shown to the room instead of the default.
+        self.error = None
+
+    def abort(self, reason=None):
+        ''' Gives up on the game, cancelling its run task with a reason. '''
+        self.error = reason
+        for task in asyncio.all_tasks():
+            if task.get_name() == 'trivia-{}'.format(self.room):
+                task.cancel()
 
     async def gen_list(self, n, bot, quizbowl=False, is_dex=False, anagrams=False):
         self.num_qs = n
@@ -363,12 +448,18 @@ class QuestionList:
                         self.ending_acknowledged = True
                         break
 
+                    made = None
                     if is_dex:
                         await self.gen_mangadex_question(session)
                     elif quizbowl:
-                        await self.gen_am_qbowl_question(session, bot.anilist_man)
+                        made = await self.gen_am_qbowl_question(session, bot.anilist_man)
                     else:
-                        await self.gen_am_question(session, bot.anilist_man, anagrams=anagrams)
+                        made = await self.gen_am_question(session, bot.anilist_man, anagrams=anagrams)
+
+                    # Out of usable series: later questions would fail the
+                    # same way, so finish with the questions already made.
+                    if made is False:
+                        break
 
             elif self.room == const.LEAGUE_ROOM:
                 for _ in range(n):
@@ -409,7 +500,14 @@ class QuestionList:
                 return url[:-3] + 'jpg'
         return url
 
-    async def gen_am_base(self, session, anilist_man):
+    async def gen_am_base(self, session, anilist_man, need):
+        '''
+        Picks an unused, SFW series with the field `need` (img_url or
+        description) at around the game's difficulty.
+
+        Returns None if no such series turned up within AM_MAX_ROLLS rolls,
+        or if the game had to be aborted.
+        '''
         query = '''
         query ($page: Int, $perpage: Int) {
             Page (page: $page, perPage: $perpage) {
@@ -459,40 +557,41 @@ class QuestionList:
                             break
 
                 if media:
-                    self.category_params.append(f'format_in: {", ".join(media)}')
+                    self.category_params.append(f'format_in: [{", ".join(media)}]')
                 if genres:
                     self.category_params.append(f'genre_in: {json.dumps(genres)}')
                 if tags:
                     self.category_params.append(f'tag_in: {json.dumps(tags)}')
 
-                if self.excludecats:
-                    media = []
-                    genres = []
-                    tags = []
-                    for c in self.excludecats:
-                        true_c = find_true_name(c)
+            # Exclusions apply whether or not categories were chosen.
+            if self.excludecats:
+                media = []
+                genres = []
+                tags = []
+                for c in self.excludecats:
+                    true_c = find_true_name(c)
 
-                        for m in const.ANILIST_MEDIA:
-                            if true_c == find_true_name(m):
-                                media.append(m)
-                                break
+                    for m in const.ANILIST_MEDIA:
+                        if true_c == find_true_name(m):
+                            media.append(m)
+                            break
 
-                        for g in const.ANILIST_GENRES:
-                            if true_c == find_true_name(g):
-                                genres.append(g)
-                                break
+                    for g in const.ANILIST_GENRES:
+                        if true_c == find_true_name(g):
+                            genres.append(g)
+                            break
 
-                        for t in const.ANILIST_TAGS:
-                            if true_c == find_true_name(t):
-                                tags.append(t)
-                                break
+                    for t in const.ANILIST_TAGS:
+                        if true_c == find_true_name(t):
+                            tags.append(t)
+                            break
 
-                    if media:
-                        self.category_params.append(f'format_not_in: {json.dumps(media)}')
-                    if genres:
-                        self.category_params.append(f'genre_not_in: {json.dumps(genres)}')
-                    if tags:
-                        self.category_params.append(f'tag_not_in: {json.dumps(tags)}')
+                if media:
+                    self.category_params.append(f'format_not_in: [{", ".join(media)}]')
+                if genres:
+                    self.category_params.append(f'genre_not_in: {json.dumps(genres)}')
+                if tags:
+                    self.category_params.append(f'tag_not_in: {json.dumps(tags)}')
 
         category_params_str = ','.join(self.category_params)
         if category_params_str:
@@ -509,78 +608,98 @@ class QuestionList:
                 'perpage': 1
             }
 
-            async with anilist_man.lock():
-                self.max_rank = await anilist_num_entries(query, query_vars, session)
+            max_rank = await anilist_num_entries(query, query_vars, session, anilist_man)
 
-            if not self.max_rank:
-                for task in asyncio.all_tasks():
-                    if task.get_name() == 'trivia-{}'.format(self.room):
-                        task.cancel()
-                        return
+            if max_rank is None:
+                self.abort('AniList is not responding right now, so trivia could not start.')
+                return
+            if not max_rank:
+                self.abort('No series match those settings.')
+                return
+            self.max_rank = max_rank
 
-        rank = 0
         if self.max_rank < self.num_qs:
             self.series_exist = False
-            for task in asyncio.all_tasks():
-                if task.get_name() == 'trivia-{}'.format(self.room):
-                    task.cancel()
-                    return
+            self.abort(f'Only {self.max_rank} series match those settings, '
+                       f'not enough for {self.num_qs} questions.')
+            return
 
+        for _ in range(AM_MAX_ROLLS):
+            rank = self.roll_rank()
+            media = await self.am_page(session, anilist_man, query, (rank - 1) // AM_PAGE_SIZE + 1)
+            if media is None:
+                return None
+
+            # Prefer the rolled series; otherwise others on the same page,
+            # which are about as popular.
+            idx = (rank - 1) % AM_PAGE_SIZE
+            preferred = [media[idx]] if idx < len(media) else []
+            others = [s for s in media if not preferred or s is not preferred[0]]
+            random.shuffle(others)
+
+            for series_data in preferred + others:
+                slug = self.am_slug(series_data, rank)
+                if not slug['id'] or self.duplicate_check(slug['id']) or not slug[need]:
+                    continue
+                if await self.bot.mal_man.is_nsfw(series_data['type'].lower(), series_data['idMal']):
+                    continue
+                return slug
+
+        logger.warning(f'No usable series for a trivia question in {self.room} '
+                       f'after {AM_MAX_ROLLS} rolls.')
+        return None
+
+    def roll_rank(self):
+        ''' A popularity (or score) rank, more obscure at higher difficulty. '''
         diff_scale = max(1.1, math.log(self.max_rank, 10) / 1.5)
         std_dev_scale = max(10, diff_scale ** 2)
 
+        rank = 0
         while rank < 1 or rank > self.max_rank:
             rank = int(random.gauss(self.max_rank // ((diff_scale) ** (10 - self.diff)),
                                     (std_dev_scale * self.diff / 2)))
+        return rank
 
-        all_series = []
-        roll_query_vars = {
-            'page': rank,
-            'perpage': 1
-        }
-        # Anilist pageInfo is flaky, resulting in the possibility of overshooting the upper bound at higher diffs
-        while not all_series:
-            async with anilist_man.lock():
-                async with session.post(const.ANILIST_API, json={'query': query, 'variables': roll_query_vars}) as r:
-                    resp = await r.json(content_type=None)
+    async def am_page(self, session, anilist_man, query, page):
+        '''
+        One page of AM_PAGE_SIZE series, fetched once per game. Returns
+        None (after aborting the game) if AniList fails or nothing matches.
+        '''
+        # AniList's total is sometimes larger than the real number of
+        # series, so a page past the end can come back empty; step back.
+        while page >= 1:
+            if page in self.am_pages:
+                return self.am_pages[page]
 
-                    if r.status != 200:
-                        for task in asyncio.all_tasks():
-                            if task.get_name() == 'trivia-{}'.format(self.room):
-                                task.cancel()
-                                return
+            # Waits out AniList's rate limit rather than failing.
+            status, resp = await anilist_post(session, query, {'page': page, 'perpage': AM_PAGE_SIZE},
+                                              anilist_man)
+            if status != 200 or not resp:
+                self.abort('AniList is not responding right now, so trivia had to stop.')
+                return None
 
-                    all_series = resp['data']['Page']['media']
+            media = ((resp.get('data') or {}).get('Page') or {}).get('media') or []
+            if media:
+                self.am_pages[page] = media
+                return media
+            page = math.floor(page * 0.8) if page > 1 else 0
 
-            roll_query_vars['page'] = math.floor(roll_query_vars['page'] * 0.8)
+        self.abort('No series match those settings.')
+        return None
 
-        series_data = all_series[0]
-
-        aliases = []
-        for title in series_data['title'].values():
-            if title:
-                aliases.append(title)
-
-        slug = {'img_url': series_data['coverImage']['large'],
-                'description': series_data['description'],
+    def am_slug(self, series_data, rank):
+        aliases = [title for title in series_data['title'].values() if title]
+        return {'img_url': (series_data.get('coverImage') or {}).get('large'),
+                'description': series_data.get('description'),
                 'answers': aliases,
                 'rank': rank,
-                'id': series_data['id']}
-
-        is_nsfw = await self.bot.mal_man.is_nsfw(series_data['type'].lower(), series_data['idMal'])
-        if is_nsfw:
-            slug = slug.fromkeys(slug, None)
-        return slug
+                'id': series_data.get('id')}
 
     async def gen_am_question(self, session, anilist_man, anagrams=False):
-        base = await self.gen_am_base(session, anilist_man)
+        ''' Returns False if no question could be made. '''
+        base = await self.gen_am_base(session, anilist_man, 'img_url')
         if base is None:
-            return
-
-        while not base['id'] or self.duplicate_check(base['id']) or not base['img_url']:
-            base = await self.gen_am_base(session, anilist_man)
-            if base is None:
-                return
+            return False
 
         self.q_bases.append(base['id'])
 
@@ -590,22 +709,19 @@ class QuestionList:
 
             await self.questions.put([f'/announce Unscramble this: **{scrambled}**', [answer],
                                       {'text': f'Unscramble this: **{scrambled}**'}])
-            return
+            return True
 
         img_url = img_tag(base['img_url'], (140, 210))
 
         await self.questions.put(['/adduhtml {}, {}'.format(UHTML_NAME, img_url),
                                   base['answers'], {'image': base['img_url']}])
+        return True
 
     async def gen_am_qbowl_question(self, session, anilist_man):
-        base = await self.gen_am_base(session, anilist_man)
+        ''' Returns False if no question could be made. '''
+        base = await self.gen_am_base(session, anilist_man, 'description')
         if base is None:
-            return
-
-        while not base['id'] or self.duplicate_check(base['id']) or not base['description']:
-            base = await self.gen_am_base(session, anilist_man)
-            if base is None:
-                return
+            return False
 
         self.q_bases.append(base['id'])
 
@@ -614,6 +730,7 @@ class QuestionList:
             question = censor_quizbowl(title, question)
 
         await self.questions.put([question, base['answers']])
+        return True
 
     async def gen_mangadex_question(self, session):
         series_id = ''
@@ -876,6 +993,9 @@ class DiscordTriviaGame(TriviaGame):
         self.anagrams = False
         self.quizbowl = False
         self.showing = False
+        # Set by /trivia start before the game task runs, so two quick
+        # starts can't both go ahead.
+        self.starting = False
         super().__init__(f'{const.DISCORD_TRIVIA_PREFIX}{guild_id}', bot)
 
         # Scores are keyed by username, which never changes hands; this maps
@@ -923,6 +1043,7 @@ class DiscordTriviaGame(TriviaGame):
         pass
 
     async def run(self, n=10, **kwargs):
+        self.starting = False
         if not self.active:
             self.n = n
             self.q_num = 0
@@ -1008,12 +1129,11 @@ class DiscordTriviaGame(TriviaGame):
             text = extra.get('text') or strip_html(question[0])
             await self.send(embed=self.question_embed(text))
 
-    async def quizbowl_question(self, question, skip_time):
+    async def quizbowl_question(self, question, skip_time, q_id):
         '''
         Reveals the description a few words at a time by editing one
         message, then starts the timer once it is fully shown.
         '''
-        answer = self.answers[0]
         words = strip_html(question).split(' ')
         if len(' '.join(words)) > 3500:
             while len(' '.join(words)) > 3500:
@@ -1025,10 +1145,10 @@ class DiscordTriviaGame(TriviaGame):
         embed.description = discord.utils.escape_markdown(' '.join(words[:shown]))
         msg = await self.send(embed=embed)
 
-        while self.active and self.answers and self.answers[0] == answer:
+        while self.question_live(q_id):
             if shown >= len(words):
                 if skip_time:
-                    asyncio.create_task(self.autoskip(skip_time))
+                    self.spawn(self.autoskip(skip_time, q_id))
                 return
             await asyncio.sleep(self.QB_CHUNK_DELAY)
             shown += self.QB_CHUNK_WORDS

@@ -1,28 +1,98 @@
 import aiohttp
+import asyncio
 import datetime
 import json
+import logging
 import random
+import time
 
 import common.constants as const
 
 from common.uhtml import ItemInfo
 from common.utils import img_tag
 
+logger = logging.getLogger(__name__)
 
-async def anilist_num_entries(query, query_vars, session):
+# AniList allows 30 requests a minute; when it says to wait, wait at most this long.
+MAX_RATE_LIMIT_WAIT = 65
+
+
+def anilist_wait_time(status, headers):
+    '''
+    How long to wait before the next AniList request: as long as it asks
+    after a 429, or until the limit resets if no requests are left.
+    '''
+    try:
+        if status == 429:
+            wait = float(headers.get('Retry-After', 60))
+        elif int(headers.get('X-RateLimit-Remaining', 1)) <= 0 and headers.get('X-RateLimit-Reset'):
+            wait = float(headers['X-RateLimit-Reset']) - time.time() + 1
+        else:
+            return 0
+    except (TypeError, ValueError):
+        wait = 60 if status == 429 else 0
+    return min(max(wait, 1), MAX_RATE_LIMIT_WAIT)
+
+
+async def anilist_post(session, query, query_vars, anilist_man, attempts=4):
+    '''
+    Sends an AniList query, waiting out its rate limit (and retrying
+    briefly on server errors) instead of failing. Waits happen while
+    holding the AniList lock, so every other AniList request waits too.
+    When AniList says no requests are left, this result is returned right
+    away and the next request waits for the limit to reset.
+
+    Returns:
+        (status, json): status is None if AniList couldn't be reached.
+    '''
+    status, resp = None, None
+    for _ in range(attempts):
+        headers = {}
+        async with anilist_man.lock():
+            resume_in = getattr(anilist_man, 'anilist_resume_at', 0) - time.monotonic()
+            if resume_in > 0:
+                logger.info(f'Waiting {resume_in:.0f}s for the AniList rate limit to reset.')
+                await asyncio.sleep(resume_in)
+            try:
+                async with session.post(const.ANILIST_API,
+                                        json={'query': query, 'variables': query_vars}) as r:
+                    status, headers = r.status, r.headers
+                    try:
+                        resp = await r.json(content_type=None)
+                    except ValueError:
+                        resp = None
+            except (aiohttp.ClientError, asyncio.TimeoutError) as e:
+                logger.warning(f'AniList request failed: {e!r}')
+                status, resp = None, None
+
+            wait = anilist_wait_time(status, headers)
+            if wait:
+                logger.info(f'AniList rate limit reached; pausing AniList requests for {wait:.0f}s.')
+                anilist_man.anilist_resume_at = time.monotonic() + wait
+
+        if status == 200:
+            return status, resp
+        if status is not None and status != 429 and status < 500:
+            return status, resp    # A real error; retrying won't help.
+        if status != 429:
+            await asyncio.sleep(2)
+    return status, resp
+
+
+async def anilist_num_entries(query, query_vars, session, anilist_man):
     '''
     Oneshot query to determine the total number of entries
     in an anilist query. Requires the query to have pageInfo.
 
-    Does not have the anilist context manager lock.
+    Returns None if AniList couldn't answer.
     '''
-    async with session.post(const.ANILIST_API, json={'query': query, 'variables': query_vars}) as r:
-        if r.status != 200:
-            return
-
-        resp = await r.json()
-
-    return resp['data']['Page']['pageInfo']['total']
+    status, resp = await anilist_post(session, query, query_vars, anilist_man)
+    if status != 200 or not resp:
+        return None
+    try:
+        return resp['data']['Page']['pageInfo']['total']
+    except (KeyError, TypeError):
+        return None
 
 
 async def anilist_search(medium, search, anilist_man):
@@ -138,8 +208,7 @@ async def anilist_rand_series(medium, anilist_man, genres=[], tags=[]):
 
     num_entries = 0
     async with aiohttp.ClientSession() as session:
-        async with anilist_man.lock():
-            num_entries = await anilist_num_entries(query, query_vars, session)
+        num_entries = await anilist_num_entries(query, query_vars, session, anilist_man)
 
         if not num_entries:
             return 'hippoerror, No series found with the given specifications.'
@@ -148,21 +217,19 @@ async def anilist_rand_series(medium, anilist_man, genres=[], tags=[]):
 
         series_data = {}
         while not series_data:
-            async with anilist_man.lock():
-                async with session.post(const.ANILIST_API, json={'query': query, 'variables': query_vars}) as r:
-                    resp = await r.json(content_type=None)
+            status, resp = await anilist_post(session, query, query_vars, anilist_man)
 
-                    if r.status != 200:
-                        err_msg = (resp or {}).get('errors', [{}])[0].get('message', 'unknown error')
-                        return f'hippoerror, Status code {r.status} when fetching a random {medium}: {err_msg}'
+            if status != 200 or not resp:
+                err_msg = (resp or {}).get('errors', [{}])[0].get('message', 'unknown error')
+                return f'hippoerror, Status code {status} when fetching a random {medium}: {err_msg}'
 
-                    media = resp['data']['Page']['media']
-                    if media:
-                        series_data = media[0]
-                    elif query_vars['page'] <= 1:
-                        return 'hippoerror, No series found with the given specifications.'
-                    else:
-                        query_vars['page'] = query_vars['page'] // 2
+            media = resp['data']['Page']['media']
+            if media:
+                series_data = media[0]
+            elif query_vars['page'] <= 1:
+                return 'hippoerror, No series found with the given specifications.'
+            else:
+                query_vars['page'] = query_vars['page'] // 2
 
     mal_url = f'https://myanimelist.net/{medium}/{series_data["idMal"]}'
     img_uhtml = img_tag(series_data['coverImage']['extraLarge'], (65, 100))

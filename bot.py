@@ -652,7 +652,8 @@ class Bot:
                 trivia_game = self.roomlist[curr_room].trivia
                 # Anime/manga/video game titles have a lot of different colloquial names.
                 # Those rooms are more flexible in accepting answers.
-                is_exact = False if curr_room in [const.ANIME_ROOM, const.VG_ROOM, const.SCHOL_ROOM] else "league"
+                lenient_rooms = [const.ANIME_ROOM, const.HINDISUB_ROOM, const.VG_ROOM, const.SCHOL_ROOM]
+                is_exact = False if curr_room in lenient_rooms else "league"
                 is_exact = "anagrams" if self.roomlist[curr_room].trivia.anagrams else is_exact
                 answer_check = check_answer(parts[4], trivia_game.answers, exact=is_exact)
 
@@ -1629,7 +1630,7 @@ class DiscordBot:
                                   "Message Content Intent for this bot in the Discord Developer "
                                   "Portal, then restart me.", ephemeral=True)
                 return
-            if game.active:
+            if game.active or game.starting:
                 where = game.channel.mention if game.channel is not None else 'another channel'
                 await ctx.respond(f'There is already a trivia game running in {where}.', ephemeral=True)
                 return
@@ -1654,17 +1655,20 @@ class DiscordBot:
             anagrams = mode == 'anagrams' and not is_dex
             quizbowl = mode == 'quizbowl' and not is_dex
 
+            # Claim the game before anything that waits, so a second start
+            # arriving meanwhile is turned away.
+            game.starting = True
             game.channel = ctx.channel
-            timer_msg = f', with a {timer} second timer' if timer else ''
-            kind = 'MangaDex' if is_dex else mode
-            await ctx.respond(f'Starting a {kind} trivia with {questions} questions{timer_msg}. '
-                              'Type your answers in this channel to guess!')
-
             # The question generator cancels this task by name if it fails.
             asyncio.create_task(game.run(
                 n=questions, diff=difficulty, categories=args.categories,
                 excludecats=args.excludecats, by_rating=by_rating, autoskip=timer,
                 quizbowl=quizbowl, is_dex=is_dex, anagrams=anagrams), name=f'trivia-{game.room}')
+
+            timer_msg = f', with a {timer} second timer' if timer else ''
+            kind = 'MangaDex' if is_dex else mode
+            await ctx.respond(f'Starting a {kind} trivia with {questions} questions{timer_msg}. '
+                              'Type your answers in this channel to guess!')
 
         @trivia.command(name='stop', description='End the current trivia game.')
         async def trivia_stop(ctx):
