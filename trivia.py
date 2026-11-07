@@ -1,7 +1,9 @@
 import logging
 import aiohttp
 import asyncio
+import discord
 import html
+import io
 import json
 import math
 import pandas as pd
@@ -129,9 +131,29 @@ class TriviaGame:
             if len(self.answers) == 0:
                 break
 
-            curr_time = int(time.time())
-            await self.bot.incoming.put(f'>{self.room}\n'
-                                        f'|c:|{curr_time}|*hippobotas|{answer}')
+            await self.time_up(answer)
+
+    async def time_up(self, answer):
+        '''
+        Ends the current question unanswered. On Showdown this is done by
+        having the bot "answer" it, which the guess handler treats as a skip.
+        '''
+        curr_time = int(time.time())
+        await self.bot.incoming.put(f'>{self.room}\n'
+                                    f'|c:|{curr_time}|*hippobotas|{answer}')
+
+    async def say(self, text):
+        await self.bot.outgoing.put(f'{self.room}|{text}')
+
+    async def show_question(self, question):
+        await self.bot.outgoing.put(f'{self.room}|{question[0]}')
+
+    async def show_results(self):
+        endtext = 'This trivia game has ended. See below for results.'
+        await self.bot.outgoing.put(f'{self.room}|/adduhtml {UHTML_NAME}, {endtext}')
+        await asyncio.sleep(1)
+        t_title = 'Quizbowl Leaderboard' if self.quizbowl else 'Trivia Leaderboard'
+        await self.bot.outgoing.put(f"{self.room}|/adduhtml {leaderboard_uhtml(self.leaderboard(), t_title)}")
 
     async def quizbowl_question(self, question, skip_time):
         answer = self.answers[0]
@@ -172,7 +194,7 @@ class TriviaGame:
                   excludecats=None, by_rating=False, autoskip=20,
                   quizbowl=False, is_dex=False, anagrams=False):
         if self.active:
-            await self.bot.outgoing.put(self.room + '|There is already a running trivia!')
+            await self.say('There is already a running trivia!')
             return
 
         self.active = True
@@ -200,9 +222,12 @@ class TriviaGame:
 
                 curr_question = await self.next_question(gen_task)
                 if curr_question is None:
-                    await self.bot.outgoing.put(f'{self.room}|Could not generate any more questions.')
+                    await self.say('Could not generate any more questions.')
                     break
                 self.answers = curr_question[1]
+                # A question answered before its timer started leaves this set,
+                # which would start the next question's timer too early.
+                self.q_active.clear()
 
                 if quizbowl:
                     asyncio.create_task(self.quizbowl_question(curr_question[0], autoskip))
@@ -210,7 +235,7 @@ class TriviaGame:
                     if autoskip:
                         asyncio.create_task(self.autoskip(autoskip))
 
-                    await self.bot.outgoing.put(f'{self.room}|{curr_question[0]}')
+                    await self.show_question(curr_question)
 
                 self.q_active.set()
 
@@ -222,7 +247,7 @@ class TriviaGame:
                 self.questions = QuestionList(self.room, self.bot)
                 self.answers = []
                 self.active = False
-                await self.bot.outgoing.put(f'{self.room}|Trivia could not be run with those settings.')
+                await self.say('Trivia could not be run with those settings.')
             raise
 
         gen_task.cancel()
@@ -270,11 +295,7 @@ class TriviaGame:
             await asyncio.sleep(0.1)
         self.questions = QuestionList(self.room, self.bot)
 
-        endtext = 'This trivia game has ended. See below for results.'
-        await self.bot.outgoing.put(f'{self.room}|/adduhtml {UHTML_NAME}, {endtext}')
-        await asyncio.sleep(1)
-        t_title = 'Quizbowl Leaderboard' if self.quizbowl else 'Trivia Leaderboard'
-        await self.bot.outgoing.put(f"{self.room}|/adduhtml {leaderboard_uhtml(self.leaderboard(), t_title)}")
+        await self.show_results()
 
         self.active = False
 
@@ -285,8 +306,11 @@ class TriviaGame:
         '''
         self.stopping = True
         try:
-            if self.run_task and not self.run_task.done():
+            if (self.run_task and not self.run_task.done()
+                    and self.run_task is not asyncio.current_task()):
                 self.run_task.cancel()
+                # Let it finish unwinding while stopping is still set.
+                await asyncio.wait([self.run_task], timeout=5)
             self.answers = []
             await self.end()
         finally:
@@ -332,7 +356,8 @@ class QuestionList:
     async def gen_list(self, n, bot, quizbowl=False, is_dex=False, anagrams=False):
         self.num_qs = n
         async with aiohttp.ClientSession() as session:
-            if self.room in [const.ANIME_ROOM, const.HINDISUB_ROOM]:
+            if (self.room in [const.ANIME_ROOM, const.HINDISUB_ROOM] or
+                self.room.startswith(const.DISCORD_TRIVIA_PREFIX)):
                 for _ in range(n):
                     if self.ended:
                         self.ending_acknowledged = True
@@ -563,13 +588,14 @@ class QuestionList:
             answer = random.choice(base['answers'])
             scrambled = anagram_scramble(answer)
 
-            await self.questions.put([f'/announce Unscramble this: **{scrambled}**', [answer]])
+            await self.questions.put([f'/announce Unscramble this: **{scrambled}**', [answer],
+                                      {'text': f'Unscramble this: **{scrambled}**'}])
             return
 
         img_url = img_tag(base['img_url'], (140, 210))
 
         await self.questions.put(['/adduhtml {}, {}'.format(UHTML_NAME, img_url),
-                                  base['answers']])
+                                  base['answers'], {'image': base['img_url']}])
 
     async def gen_am_qbowl_question(self, session, anilist_man):
         base = await self.gen_am_base(session, anilist_man)
@@ -643,7 +669,8 @@ class QuestionList:
 
         img_url = f'https://uploads.mangadex.org/covers/{series_id}/{cover_id}.256.jpg'
         img_uhtml = await gen_uhtml_img(img_url, height_resize=PIC_SIZE)
-        await self.questions.put(['/adduhtml {}, {}'.format(UHTML_NAME, img_uhtml), answers])
+        await self.questions.put(['/adduhtml {}, {}'.format(UHTML_NAME, img_uhtml), answers,
+                                  {'image': img_url}])
 
     async def gen_lol_base(self, session, data):
         base = {}
@@ -821,3 +848,199 @@ class QuestionList:
         screenshot_url = screenshot_url.replace('t_thumb', 't_original')
         question = f'/adduhtml {UHTML_NAME}, <center><img src=\'{screenshot_url}\' width=266 height=150></center>'
         await self.questions.put([question, [vidya['name'], vidya['slug']]])
+
+
+def strip_html(text):
+    ''' Turns AniList's HTML descriptions into plain text. '''
+    text = re.sub(r'<br\s*/?>', ' ', text or '')
+    text = re.sub(r'<[^>]+>', '', text)
+    return re.sub(r'\s+', ' ', html.unescape(text)).strip()
+
+
+class DiscordTriviaGame(TriviaGame):
+    '''
+    Anime/manga trivia played in a Discord channel. Questions come from the
+    same generators as the Showdown room; only the output differs. Scores
+    are kept in their own all-time leaderboard.
+    '''
+    EMBED_COLOR = 0x2E51A2
+    MAX_IMG_BYTES = 8 * 1024 * 1024
+    QB_CHUNK_WORDS = 6
+    QB_CHUNK_DELAY = 1.5    # Discord rate-limits message edits.
+
+    def __init__(self, guild_id, bot):
+        self.channel = None
+        self.n = 0
+        self.q_num = 0
+        self.game_scores = {}
+        self.anagrams = False
+        self.quizbowl = False
+        self.showing = False
+        super().__init__(f'{const.DISCORD_TRIVIA_PREFIX}{guild_id}', bot)
+
+    def reset_scoreboard(self, length=0):
+        # The Discord leaderboard is all-time.
+        pass
+
+    async def run(self, n=10, **kwargs):
+        if not self.active:
+            self.n = n
+            self.q_num = 0
+            self.game_scores = {}
+        await super().run(n=n, **kwargs)
+
+    def update_scores(self, user):
+        super().update_scores(user)
+        self.game_scores[user] = self.game_scores.get(user, 0) + 1
+
+    async def send(self, **kwargs):
+        if self.channel is None:
+            return None
+        try:
+            return await self.channel.send(allowed_mentions=discord.AllowedMentions.none(), **kwargs)
+        except discord.HTTPException as e:
+            logger.warning(f'Could not send trivia message to Discord: {e!r}')
+            return None
+
+    async def say(self, text):
+        await self.send(content=text)
+
+    async def fetch_image(self, url):
+        '''
+        Downloads a question image to attach to the message, so it shows
+        even if the host blocks Discord's image proxy, and the URL isn't
+        visible. Returns None if it can't be downloaded.
+        '''
+        try:
+            timeout = aiohttp.ClientTimeout(total=10)
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                async with session.get(url) as r:
+                    if r.status != 200:
+                        return None
+                    data = await r.content.read(self.MAX_IMG_BYTES + 1)
+        except (aiohttp.ClientError, asyncio.TimeoutError) as e:
+            logger.warning(f'Could not download trivia image {url}: {e!r}')
+            return None
+
+        if len(data) > self.MAX_IMG_BYTES:
+            return None
+        ext = url.rsplit('?', 1)[0].rsplit('.', 1)[-1].lower()
+        if ext not in ('jpg', 'jpeg', 'png', 'gif', 'webp'):
+            ext = 'jpg'
+        return discord.File(io.BytesIO(data), filename=f'question.{ext}')
+
+    def question_embed(self, description=None):
+        self.q_num += 1
+        return discord.Embed(title=f'Question {self.q_num}/{self.n}',
+                             description=description, color=self.EMBED_COLOR)
+
+    async def show_question(self, question):
+        # No guessing while the image downloads and nobody can see it yet.
+        self.showing = True
+        try:
+            await self.post_question(question)
+        finally:
+            self.showing = False
+
+    async def post_question(self, question):
+        extra = question[2] if len(question) > 2 else {}
+
+        if extra.get('image'):
+            embed = self.question_embed('Name the series!')
+            file = await self.fetch_image(extra['image'])
+            if file:
+                embed.set_image(url=f'attachment://{file.filename}')
+                await self.send(embed=embed, file=file)
+            else:
+                embed.set_image(url=extra['image'])
+                await self.send(embed=embed)
+        else:
+            text = extra.get('text') or strip_html(question[0])
+            await self.send(embed=self.question_embed(text))
+
+    async def quizbowl_question(self, question, skip_time):
+        '''
+        Reveals the description a few words at a time by editing one
+        message, then starts the timer once it is fully shown.
+        '''
+        answer = self.answers[0]
+        words = strip_html(question).split(' ')
+        if len(' '.join(words)) > 3500:
+            while len(' '.join(words)) > 3500:
+                words.pop()
+            words.append('...')
+
+        embed = self.question_embed()
+        shown = self.QB_CHUNK_WORDS
+        embed.description = discord.utils.escape_markdown(' '.join(words[:shown]))
+        msg = await self.send(embed=embed)
+
+        while self.active and self.answers and self.answers[0] == answer:
+            if shown >= len(words):
+                if skip_time:
+                    asyncio.create_task(self.autoskip(skip_time))
+                return
+            await asyncio.sleep(self.QB_CHUNK_DELAY)
+            shown += self.QB_CHUNK_WORDS
+            embed.description = discord.utils.escape_markdown(' '.join(words[:shown]))
+            if msg is not None:
+                try:
+                    await msg.edit(embed=embed)
+                except discord.HTTPException as e:
+                    logger.warning(f'Could not update quizbowl question: {e!r}')
+
+        # Answered or skipped early: show the whole thing.
+        if msg is not None and shown < len(words):
+            embed.description = discord.utils.escape_markdown(' '.join(words))
+            try:
+                await msg.edit(embed=embed)
+            except discord.HTTPException:
+                pass
+
+    def finish_question(self):
+        self.correct.set()
+        self.answers = []
+
+    async def time_up(self, answer):
+        if self.answers and self.answers[0] == answer:
+            self.finish_question()
+            await self.say(f"Time's up! The answer was **{discord.utils.escape_markdown(answer)}**.")
+
+    async def skip_question(self):
+        ''' Returns the skipped question's answer, or None if none was active. '''
+        if not (self.active and self.answers):
+            return None
+        answer = self.answers[0]
+        self.finish_question()
+        return answer
+
+    async def handle_guess(self, message):
+        ''' Checks a chat message in the game's channel as a guess. '''
+        if not (self.active and self.answers and not self.showing and self.channel is not None
+                and message.channel.id == self.channel.id):
+            return
+
+        exact = 'anagrams' if self.anagrams else False
+        answer = check_answer(message.content, self.answers, exact=exact)
+        if not answer:
+            return
+
+        self.finish_question()
+        self.update_scores(message.author.name)
+        await self.say(f'**{discord.utils.escape_markdown(message.author.display_name)}** wins. '
+                       f'The answer was **{discord.utils.escape_markdown(answer)}**.')
+
+    def leaderboard_embed(self, title, rows):
+        lines = [f'**{i + 1}.** {discord.utils.escape_markdown(str(user))} \u2014 {int(score)} pts'
+                 for i, (user, score) in enumerate(rows)]
+        return discord.Embed(title=title, description='\n'.join(lines) or 'No scores yet.',
+                             color=self.EMBED_COLOR)
+
+    async def show_results(self):
+        rows = sorted(self.game_scores.items(), key=lambda x: x[1], reverse=True)[:10]
+        title = 'Quizbowl Results' if self.quizbowl else 'Trivia Results'
+        embed = self.leaderboard_embed(title, rows)
+        if not rows:
+            embed.description = 'No one scored this game.'
+        embed.set_footer(text='This trivia game has ended. Use /trivia leaderboard for all-time scores.')
+        await self.send(embed=embed)

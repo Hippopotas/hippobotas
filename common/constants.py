@@ -75,9 +75,12 @@ METRONOME_BATTLE = 'gen9metronomebattle'
 
 OWNER = 'hippopotas'
 
-# Second Discord server, and the roles allowed to run staff commands there.
+# Discord server with anime/manga trivia, and the roles allowed to run it.
 DISCORD_TRIVIA_GUILD = 1567948160020643870
 DISCORD_TRIVIA_ROLES = {'Driver', 'Head Driver', 'Moderator', 'Owner'}
+DISCORD_TRIVIA_PREFIX = 'discord_'
+# Trivia commands only work in this channel (or threads inside it).
+DISCORD_TRIVIA_CHANNEL = 'trivia'
 
 GACHAS = ['fgo']
 

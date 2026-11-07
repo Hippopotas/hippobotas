@@ -29,7 +29,7 @@ from common.steam import set_steam_user, show_steam_user, steam_user_rand_series
 from common.tcg import display_mtg_card, display_ptcg_card, display_ygo_card
 from common.utils import find_true_name, gen_uhtml_img, leaderboard_uhtml, birthday_text
 from room import Room
-from trivia import check_answer
+from trivia import check_answer, DiscordTriviaGame
 from user import User
 
 logger = logging.getLogger(__name__)
@@ -1544,8 +1544,18 @@ def is_discord_trivia_staff(member):
 
 
 class DiscordBot:
-    def __init__(self):
-        bot = discord.Bot(intents=discord.Intents.default())
+    def __init__(self, ps_bot=None):
+        # Anime/manga trivia uses the Showdown bot's AniList/MAL managers.
+        self.trivia = DiscordTriviaGame(const.DISCORD_TRIVIA_GUILD, ps_bot) if ps_bot else None
+        self.message_content = True
+        self.bot = self.build_bot()
+
+    def build_bot(self):
+        intents = discord.Intents.default()
+        # Needed to read trivia guesses typed in chat. It's a privileged
+        # intent, so it must also be switched on in the Developer Portal.
+        intents.message_content = self.message_content
+        bot = discord.Bot(intents=intents)
 
         @bot.command(description="Restarts the bot, reloading its code.", guild_ids=[218560071540408320, 1567948160020643870])
         async def restart_ps(ctx):
@@ -1564,12 +1574,158 @@ class DiscordBot:
             logger.info('Logged into discord.')
             await bot.sync_commands()
 
-        self.bot = bot
-    
+        if self.trivia is not None:
+            self.add_trivia_commands(bot)
+
+        return bot
+
+    def add_trivia_commands(self, bot):
+        game = self.trivia
+        trivia = bot.create_group('trivia', 'Anime and manga trivia',
+                                  guild_ids=[const.DISCORD_TRIVIA_GUILD])
+
+        async def require_channel(ctx):
+            channel = ctx.channel
+            # Threads count as part of the channel they're in.
+            parent = getattr(channel, 'parent', None)
+            names = {getattr(channel, 'name', None), getattr(parent, 'name', None)}
+            if const.DISCORD_TRIVIA_CHANNEL in names:
+                return True
+            target = None
+            if ctx.guild is not None:
+                target = discord.utils.get(ctx.guild.text_channels, name=const.DISCORD_TRIVIA_CHANNEL)
+            where = target.mention if target else f'#{const.DISCORD_TRIVIA_CHANNEL}'
+            await ctx.respond(f'Trivia commands only work in {where}.', ephemeral=True)
+            return False
+
+        async def require_staff(ctx):
+            if not await require_channel(ctx):
+                return False
+            if is_discord_trivia_staff(ctx.author):
+                return True
+            await ctx.respond('Only Drivers and above can do that.', ephemeral=True)
+            return False
+
+        @trivia.command(name='start', description=f'Start an anime/manga trivia game in #{const.DISCORD_TRIVIA_CHANNEL}.')
+        async def trivia_start(
+                ctx,
+                questions: discord.Option(int, 'Number of questions', min_value=1, max_value=50, default=10),
+                mode: discord.Option(str, 'Kind of questions', default='standard',
+                                     choices=['standard', 'anagrams', 'quizbowl', 'mangadex']),
+                difficulty: discord.Option(int, '1 (popular series) to 10 (obscure)',
+                                           min_value=1, max_value=10, default=3),
+                timer: discord.Option(int, 'Seconds before a question is skipped, 0 for no timer '
+                                           '(default 15, or 45 for anagrams)',
+                                      min_value=0, max_value=300, required=False, default=None),
+                categories: discord.Option(str, 'Genres, tags or formats to include, e.g. "romance slice of life"',
+                                           required=False, default=''),
+                exclude: discord.Option(str, 'Genres, tags or formats to leave out',
+                                        required=False, default=''),
+                by_rating: discord.Option(bool, 'Pick series by score instead of popularity', default=False)):
+            if not await require_staff(ctx):
+                return
+            if not self.message_content:
+                await ctx.respond("I can't read chat messages, so nobody could answer. Turn on the "
+                                  "Message Content Intent for this bot in the Discord Developer "
+                                  "Portal, then restart me.", ephemeral=True)
+                return
+            if game.active:
+                where = game.channel.mention if game.channel is not None else 'another channel'
+                await ctx.respond(f'There is already a trivia game running in {where}.', ephemeral=True)
+                return
+
+            if timer is None:
+                timer = 45 if mode == 'anagrams' else 15
+
+            arg_str = f'{questions} -d {difficulty} -s {timer}'
+            if categories.strip():
+                arg_str += ' -c ' + ' '.join(shlex.quote(c) for c in categories.split())
+            if exclude.strip():
+                arg_str += ' -cx ' + ' '.join(shlex.quote(c) for c in exclude.split())
+            if by_rating:
+                arg_str += ' -r'
+            args = trivia_arg_parser(arg_str)
+            if args is None:
+                await ctx.respond("I didn't recognize some of those categories. They should be "
+                                  "AniList genres, tags or formats.", ephemeral=True)
+                return
+
+            is_dex = mode == 'mangadex' or 'mangadex' in args.categories
+            anagrams = mode == 'anagrams' and not is_dex
+            quizbowl = mode == 'quizbowl' and not is_dex
+
+            game.channel = ctx.channel
+            timer_msg = f', with a {timer} second timer' if timer else ''
+            kind = 'MangaDex' if is_dex else mode
+            await ctx.respond(f'Starting a {kind} trivia with {questions} questions{timer_msg}. '
+                              'Type your answers in this channel to guess!')
+
+            # The question generator cancels this task by name if it fails.
+            asyncio.create_task(game.run(
+                n=questions, diff=difficulty, categories=args.categories,
+                excludecats=args.excludecats, by_rating=by_rating, autoskip=timer,
+                quizbowl=quizbowl, is_dex=is_dex, anagrams=anagrams), name=f'trivia-{game.room}')
+
+        @trivia.command(name='stop', description='End the current trivia game.')
+        async def trivia_stop(ctx):
+            if not await require_staff(ctx):
+                return
+            if not game.active:
+                await ctx.respond('No trivia game in progress.', ephemeral=True)
+                return
+            await ctx.respond('Stopping the trivia game.')
+            await game.stop()
+
+        @trivia.command(name='skip', description='Skip the current question.')
+        async def trivia_skip(ctx):
+            if not await require_staff(ctx):
+                return
+            answer = await game.skip_question()
+            if answer is None:
+                await ctx.respond('There is no question to skip.', ephemeral=True)
+                return
+            await ctx.respond(f'Question skipped. The answer was **{discord.utils.escape_markdown(answer)}**.')
+
+        @trivia.command(name='score', description="Show someone's all-time trivia score.")
+        async def trivia_score(ctx, user: discord.Option(discord.Member, 'Whose score (default: yours)',
+                                                         required=False, default=None)):
+            if not await require_channel(ctx):
+                return
+            member = user or ctx.author
+            _, score = game.userscore(member.name)
+            name = discord.utils.escape_markdown(member.display_name)
+            if score is None:
+                await ctx.respond(f"{name} hasn't scored in trivia yet.")
+            else:
+                await ctx.respond(f'{name} has earned {int(score)} points in trivia.')
+
+        @trivia.command(name='leaderboard', description='Show the all-time trivia leaderboard.')
+        async def trivia_leaderboard(ctx, count: discord.Option(int, 'How many places to show',
+                                                                min_value=1, max_value=10, default=5)):
+            if not await require_channel(ctx):
+                return
+            await ctx.respond(embed=game.leaderboard_embed('Trivia Leaderboard', game.leaderboard(n=count)))
+
+        @bot.event
+        async def on_message(message):
+            if (message.author.bot or message.guild is None
+                    or message.guild.id != const.DISCORD_TRIVIA_GUILD):
+                return
+            await game.handle_guess(message)
+
     async def start(self):
         # Discord being unavailable shouldn't take the Showdown bot down with it.
+        token = os.getenv('DISCORD_TOKEN')
         try:
-            await self.bot.start(os.getenv('DISCORD_TOKEN'))
+            try:
+                await self.bot.start(token)
+            except discord.errors.PrivilegedIntentsRequired:
+                logger.warning('The Message Content Intent is not enabled for this bot in the '
+                               'Discord Developer Portal; starting without it, so Discord trivia '
+                               'answers cannot be read.')
+                self.message_content = False
+                self.bot = self.build_bot()
+                await self.bot.start(token)
         except Exception:
             logger.exception('Discord bot stopped')
 
@@ -1590,6 +1746,11 @@ async def restart_process():
                     room.trivia.save_scores()
                 except Exception:
                     logger.exception('Could not save trivia scores')
+    if DISCORD_BOT is not None and DISCORD_BOT.trivia is not None and DISCORD_BOT.trivia.active:
+        try:
+            DISCORD_BOT.trivia.save_scores()
+        except Exception:
+            logger.exception('Could not save Discord trivia scores')
 
     # Log out of Showdown cleanly rather than just dropping the socket.
     if WS is not None:
@@ -1618,7 +1779,7 @@ async def start_bot():
              asyncio.create_task(BOT.start_repeats(), name='start-repeats')]
 
     if os.getenv('DISCORD_TOKEN'):
-        DISCORD_BOT = DiscordBot()
+        DISCORD_BOT = DiscordBot(BOT)
         tasks.append(asyncio.create_task(DISCORD_BOT.start(), name='discord'))
     else:
         logger.info('DISCORD_TOKEN not set; skipping the Discord bot.')
