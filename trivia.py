@@ -30,6 +30,9 @@ AM_PAGE_SIZE = 50
 # Rolls to try before giving up on a question (e.g. a small category that
 # has run out of usable series).
 AM_MAX_ROLLS = 10
+# Arena augment descriptions refer to ability keys by placeholder.
+ARENA_KEYBINDS = {'spell1keybind': 'Q', 'spell2keybind': 'W', 'spell3keybind': 'E',
+                  'spell4keybind': 'R'}
 VG_DIFF_SCALE = 300
 UHTML_NAME = 'trivia'
 PIC_SIZE = 225
@@ -269,7 +272,7 @@ class TriviaGame:
                 self.correct.clear()
                 self.q_active.clear()
 
-                if quizbowl:
+                if quizbowl or (len(curr_question) > 2 and curr_question[2].get('quizbowl')):
                     self.spawn(self.quizbowl_question(curr_question[0], autoskip, q_id))
                 else:
                     if autoskip:
@@ -426,7 +429,7 @@ class QuestionList:
         self.category_params = []
         self.max_rank = 0
         self.am_pages = {}
-        self.tft_augments = None
+        self.augment_pools = {}
         self.ended = False
         self.ending_acknowledged = True
         # Why generation gave up, shown to the room instead of the default.
@@ -796,10 +799,11 @@ class QuestionList:
         qtypes = []
         if 'all' not in self.categories:
             qtypes = [c for c in const.LEAGUE_CATS + const.LEAGUE_EXTRA_CATS
-                      if c in self.categories]
+                      if find_true_name(c) in self.categories]
 
         if self.excludecats:
-            qtypes = [c for c in (qtypes or const.LEAGUE_CATS) if c not in self.excludecats]
+            qtypes = [c for c in (qtypes or const.LEAGUE_CATS)
+                      if find_true_name(c) not in self.excludecats]
 
         if len(qtypes) == 0:
             qtypes = const.LEAGUE_CATS
@@ -814,8 +818,8 @@ class QuestionList:
 
         if data['qtype'] == 'items':
             base = {k:data[k] for k in ('qtype', 'item')}
-        elif data['qtype'] == 'augments':
-            pool = await self.tft_augment_pool(session, data['api'])
+        elif data['qtype'] in const.LEAGUE_EXTRA_CATS:
+            pool = await self.augment_pool(session, data['qtype'], data)
             data['augment'] = random.choice(list(pool))
             base = {k:data[k] for k in ('qtype', 'augment')}
         else:
@@ -835,16 +839,28 @@ class QuestionList:
 
         return data, base
         
-    async def tft_augment_pool(self, session, api):
+    async def augment_pool(self, session, kind, data):
         '''
-        TFT augments from Data Dragon, fetched once per game: maps each
-        augment's base name (tier suffixes like " II" or "+" removed) to
-        its icon file and the full names that count as answers.
+        The augments for one of LEAGUE_EXTRA_CATS, fetched once per game.
+        Maps each augment's name to the names that count as answers and
+        either its icon (TFT) or its description (Arena).
         '''
-        if self.tft_augments:
-            return self.tft_augments
+        if kind not in self.augment_pools:
+            if kind == 'tft_augments':
+                pool = await self.tft_augment_pool(session, data)
+            else:
+                pool = await self.arena_augment_pool(session)
+            if not pool:
+                raise ValueError(f'No {kind} were found.')
+            self.augment_pools[kind] = pool
+        return self.augment_pools[kind]
 
-        async with session.get(api + 'tft-augments.json') as r:
+    async def tft_augment_pool(self, session, data):
+        '''
+        TFT augments from Data Dragon. Tier suffixes like " II" or "+" are
+        dropped from the shown answer, but the full names are accepted too.
+        '''
+        async with session.get(data['api'] + 'tft-augments.json') as r:
             augments = (await r.json())['data']
 
         pool = {}
@@ -861,13 +877,33 @@ class QuestionList:
             key = find_true_name(base_name)
             if key not in seen:
                 seen[key] = base_name
-                pool[base_name] = {'icon': icon, 'answers': [base_name]}
+                pool[base_name] = {'icon': data['img'] + 'tft-augment/' + icon,
+                                   'answers': [base_name]}
             if name not in pool[seen[key]]['answers']:
                 pool[seen[key]]['answers'].append(name)
 
-        if not pool:
-            raise ValueError('Data Dragon returned no TFT augments.')
-        self.tft_augments = pool
+        return pool
+
+    async def arena_augment_pool(self, session):
+        ''' Arena augments and their descriptions, from CommunityDragon. '''
+        async with session.get(const.CDRAGON_ARENA, headers={'User-Agent': 'hippobotas'},
+                               timeout=aiohttp.ClientTimeout(total=60)) as r:
+            augments = (await r.json(content_type=None))['augments']
+
+        pool = {}
+        for aug in augments:
+            name = lol_name(aug.get('name'))
+            # Rarity 4 is event choices ("Gain a Prismatic Stat Anvil" etc.).
+            if not name or aug.get('rarity') == 4:
+                continue
+            text = arena_augment_text(aug)
+            # Skip descriptions too short or vague to guess from.
+            if len(text.split()) < 5 or text.count('#') > 2:
+                continue
+            # "Quest: Mad Hatter" would otherwise also accept just "quest".
+            answer = name.replace(': ', ' - ')
+            pool.setdefault(answer, {'answers': [answer],
+                                     'text': html.escape(censor_quizbowl(name, text), quote=False)})
         return pool
 
     async def gen_lol_question(self, session):
@@ -902,12 +938,16 @@ class QuestionList:
             img_url = await gen_uhtml_img(await self.check_for_jpg(session, img_url))
             await self.questions.put(['/adduhtml {}, {}'.format(UHTML_NAME, img_url),
                                       [lol_name(data['all_items'][data['item']]['name'])]])
-        elif data['qtype'] == 'augments':
-            augment = self.tft_augments[data['augment']]
+        elif data['qtype'] == 'tft_augments':
+            augment = self.augment_pools['tft_augments'][data['augment']]
             # The icons are only 48x48, so show them three times larger.
-            img_url = img_tag(data['img'] + 'tft-augment/{}'.format(augment['icon']), (144, 144))
+            img_url = img_tag(augment['icon'], (144, 144))
             await self.questions.put(['/adduhtml {}, {}'.format(UHTML_NAME, img_url),
                                       augment['answers']])
+        elif data['qtype'] == 'arena_augments':
+            # Shown a few words at a time, like quizbowl.
+            augment = self.augment_pools['arena_augments'][data['augment']]
+            await self.questions.put([augment['text'], augment['answers'], {'quizbowl': True}])
         elif data['qtype'] == 'skins':
             skin_name = ''
             for skin in data['champ_data']['skins']:
@@ -1023,6 +1063,40 @@ def lol_name(name):
     '''
     name = re.split(r'<br\s*/?>', name or '', maxsplit=1)[0]
     return strip_html(name)
+
+
+def arena_augment_text(aug):
+    '''
+    An Arena augment's description as plain text, with its @placeholders@
+    filled in from the augment's values ("#" if a value isn't known).
+    '''
+    values = {k.lower(): v for k, v in (aug.get('dataValues') or {}).items()}
+
+    def fill(match):
+        name, _, mult = match.group(1).partition('*')
+        key = name.strip().lower()
+        if key in ARENA_KEYBINDS:
+            return ARENA_KEYBINDS[key]
+        vals = values.get(key)
+        if not vals:
+            return '#'
+        # Values are listed per augment level; index 1 is level 1.
+        value = vals[1] if len(vals) > 1 else vals[0]
+        try:
+            value *= float(mult) if mult else 1
+        except (TypeError, ValueError):
+            return '#'
+        return f'{round(value, 2):g}'
+
+    text = aug.get('desc') or ''
+    # "{{ Item_Keyword_OnHit }}" -> "On-Hit"; other references can't be resolved.
+    text = re.sub(r'\{\{\s*Item_Keyword_(\w+)\s*\}\}',
+                  lambda m: re.sub(r'(?<=[a-z])(?=[A-Z])', '-', m.group(1)), text)
+    text = re.sub(r'\{\{[^}]*\}\}', '', text)
+    text = re.sub(r'%i:[^%]*%', '', text)       # inline icons
+    text = re.sub(r'@([^@]+)@', fill, text)
+    # Removed icons can leave a space before punctuation.
+    return re.sub(r'\s+([.,;:!?])', r'\1', strip_html(text))
 
 
 def strip_html(text):

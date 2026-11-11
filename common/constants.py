@@ -36,6 +36,9 @@ DDRAGON_VERSIONS = 'https://ddragon.leagueoflegends.com/api/versions.json'
 DDRAGON_API = f'https://ddragon.leagueoflegends.com/cdn/{DDRAGON_VERSION}/data/en_US/'
 DDRAGON_IMG = f'https://ddragon.leagueoflegends.com/cdn/{DDRAGON_VERSION}/img/'
 DDRAGON_SPL = 'https://ddragon.leagueoflegends.com/cdn/img/champion/loading/'
+# Arena augments aren't in Data Dragon; CommunityDragon mirrors them from
+# the live game client.
+CDRAGON_ARENA = 'https://raw.communitydragon.org/latest/cdragon/arena/en_us.json'
 STEAM_API = 'https://api.steampowered.com/'
 IGDB_API = 'https://api.igdb.com/v4/'
 PASTIE_API = 'https://pastie.io/documents'
@@ -85,7 +88,7 @@ GACHAS = ['fgo']
 
 LEAGUE_CATS = ['skins', 'spells', 'items']
 # League room categories that are only played when asked for with -c.
-LEAGUE_EXTRA_CATS = ['augments']
+LEAGUE_EXTRA_CATS = ['tft_augments', 'arena_augments']
 
 MAL_GENRES = {'action': 1,
               'adventure': 2,
