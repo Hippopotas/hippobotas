@@ -31,7 +31,7 @@ MAL_API = 'https://api.myanimelist.net/v2/'
 DEX_API = 'https://api.mangadex.org/'
 ANILIST_API = 'https://graphql.anilist.co/'
 # Fallback version; the latest is looked up from DDRAGON_VERSIONS at runtime.
-DDRAGON_VERSION = '16.20.1'
+DDRAGON_VERSION = '16.22.1'
 DDRAGON_VERSIONS = 'https://ddragon.leagueoflegends.com/api/versions.json'
 DDRAGON_API = f'https://ddragon.leagueoflegends.com/cdn/{DDRAGON_VERSION}/data/en_US/'
 DDRAGON_IMG = f'https://ddragon.leagueoflegends.com/cdn/{DDRAGON_VERSION}/img/'
