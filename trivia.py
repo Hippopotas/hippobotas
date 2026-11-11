@@ -848,7 +848,8 @@ class QuestionList:
         
         async with session.get(data['api'] + 'item.json') as r:
             resp = await r.text()
-            data['all_items'] = json.loads(resp)['data']
+            data['all_items'] = {k: v for k, v in json.loads(resp)['data'].items()
+                                 if lol_name(v.get('name'))}
         data, base = await self.gen_lol_base(session, data)
         while self.duplicate_check(base):
             data, base = await self.gen_lol_base(session, data)
@@ -859,7 +860,7 @@ class QuestionList:
             img_url = data['img'] + 'item/{}.png'.format(data['item'])
             img_url = await gen_uhtml_img(await self.check_for_jpg(session, img_url))
             await self.questions.put(['/adduhtml {}, {}'.format(UHTML_NAME, img_url),
-                                      [data['all_items'][data['item']]['name']]])
+                                      [lol_name(data['all_items'][data['item']]['name'])]])
         elif data['qtype'] == 'skins':
             skin_name = ''
             for skin in data['champ_data']['skins']:
@@ -870,7 +871,7 @@ class QuestionList:
             img_url = const.DDRAGON_SPL + '{}_{}.jpg'.format(data['champ'], data['cval'])
             img_url = await gen_uhtml_img(await self.check_for_jpg(session, img_url))
             await self.questions.put(['/adduhtml {}, {}'.format(UHTML_NAME, img_url),
-                                      [skin_name]])
+                                      [lol_name(skin_name)]])
         elif data['qtype'] == 'spells':
             ability = {}
             if data['cval'] == 0:
@@ -878,13 +879,13 @@ class QuestionList:
                 img_url = data['img'] + 'passive/{}'.format(ability['image']['full'])
                 img_url = await gen_uhtml_img(await self.check_for_jpg(session, img_url))
                 await self.questions.put(['/adduhtml {}, {}'.format(UHTML_NAME, img_url),
-                                          [ability['name']]])
+                                          [lol_name(ability['name'])]])
             else:
                 ability = data['champ_data']['spells'][data['cval']-1]
                 img_url = data['img'] + 'spell/{}'.format(ability['image']['full'])
                 img_url = await gen_uhtml_img(await self.check_for_jpg(session, img_url))
                 await self.questions.put(['/adduhtml {}, {}'.format(UHTML_NAME, img_url),
-                                          [ability['name']]])
+                                          [lol_name(ability['name'])]])
 
     def gen_schol_base(self, q_type):
         q_row = (QuestionTable.select()
@@ -965,6 +966,16 @@ class QuestionList:
         screenshot_url = screenshot_url.replace('t_thumb', 't_original')
         question = f'/adduhtml {UHTML_NAME}, <center><img src=\'{screenshot_url}\' width=266 height=150></center>'
         await self.questions.put([question, [vidya['name'], vidya['slug']]])
+
+
+def lol_name(name):
+    '''
+    Data Dragon names can carry markup, e.g. "<rarityLegendary>Fire at
+    Will</rarityLegendary><br><subtitleLeft>...</subtitleLeft>". Keeps only
+    the plain-text name before any line break.
+    '''
+    name = re.split(r'<br\s*/?>', name or '', maxsplit=1)[0]
+    return strip_html(name)
 
 
 def strip_html(text):
