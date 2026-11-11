@@ -13,46 +13,56 @@ from common.utils import find_true_name, gen_uhtml_img
 
 logger = logging.getLogger(__name__)
 
-async def get_steam_user(username, retries=2):
-    async with aiohttp.ClientSession(trust_env=True) as session:
-        id64 = None
-        url_vers = 'profiles'
-        for i in range(retries):
-            async with session.get(f'https://steamcommunity.com/{url_vers}/{username}/?xml=1') as r:
-                resp = await r.text()
+# A 64-bit Steam ID, as in steamcommunity.com/profiles/<id>.
+STEAM64_ID = re.compile(r'^7656119\d{10}$')
 
-                if r.status != 200:
-                    logger.warning(f'Steam prelim check returned code {r.status}.')
-                    await asyncio.sleep(0.5)
-                    continue
 
-                # If user has set steam ID, check if they gave that instead of steam64 ID.
-                if 'The specified profile could not be found.' in resp:
-                    url_vers = 'id'
-                    continue
-
-                m = re.search(r'<steamID64>(?P<id>\w+)</steamID64>', resp)
-                if m:
-                    id64 = m.group('id')
-                    break
-                else:
+async def steam_api_get(session, path, params, retries=2):
+    '''
+    Calls the official Steam Web API with the bot's key. Returns the
+    'response' object, or None on failure.
+    '''
+    params = dict(params, key=os.getenv('STEAM_KEY'))
+    for attempt in range(retries + 1):
+        try:
+            async with session.get(STEAM_API + path, params=params) as r:
+                if r.status == 200:
+                    return (await r.json(content_type=None)).get('response')
+                logger.warning(f'Steam API {path.split("/")[1]} returned code {r.status}.')
+                # Only rate limits and server errors are worth retrying.
+                if r.status != 429 and r.status < 500:
                     return None
+        except (aiohttp.ClientError, asyncio.TimeoutError, ValueError) as e:
+            logger.warning(f'Steam API {path.split("/")[1]} failed: {e!r}')
+        if attempt < retries:
+            await asyncio.sleep(2 ** attempt)
+    return None
 
-        if id64:
-            steam_key = os.getenv('STEAM_KEY')
-            for i in range(retries):
-                async with session.get(f'{STEAM_API}ISteamUser/GetPlayerSummaries/V0002/?key={steam_key}&steamids={id64}') as r:
-                    resp = await r.text()
-                    userdata = json.loads(resp)
 
-                    if r.status != 200:
-                        logger.warning(f' Steam prelim check returned code {r.status}.')
-                        await asyncio.sleep(0.5)
-                        continue
-
-                    return userdata['response']['players'][0]
-
+async def get_steam_user(username, retries=2):
+    '''
+    Looks up a Steam account by its 64-bit ID or its custom URL name
+    (steamcommunity.com/id/<name>), using only the official Web API. The
+    community profile pages used before are heavily rate limited.
+    '''
+    username = (username or '').strip().strip('/')
+    if not username:
         return None
+
+    async with aiohttp.ClientSession(trust_env=True) as session:
+        id64 = username if STEAM64_ID.match(username) else None
+        if not id64:
+            resolved = await steam_api_get(session, 'ISteamUser/ResolveVanityURL/v0001/',
+                                           {'vanityurl': username}, retries)
+            if resolved and resolved.get('success') == 1:
+                id64 = resolved.get('steamid')
+        if not id64:
+            return None
+
+        summary = await steam_api_get(session, 'ISteamUser/GetPlayerSummaries/v0002/',
+                                      {'steamids': id64}, retries)
+        players = (summary or {}).get('players') or []
+        return players[0] if players else None
 
 
 async def set_steam_user(putter, ps_user, steam_user, ctx):
