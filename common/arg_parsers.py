@@ -80,7 +80,8 @@ def trivia_arg_parser(s):
         args = parser.parse_args(shlex.split(s))
 
         all_categories = ['all', 'mangadex'] + const.ANILIST_GENRES + const.ANILIST_MEDIA + \
-                         list(const.ANILIST_TAGS.keys()) + const.LEAGUE_CATS
+                         list(const.ANILIST_TAGS.keys()) + const.LEAGUE_CATS + \
+                         const.LEAGUE_EXTRA_CATS
         all_categories = set(map(find_true_name, all_categories))
 
         args.categories = match_categories(args.categories, all_categories)

@@ -84,6 +84,8 @@ DISCORD_TRIVIA_CHANNEL = 'trivia'
 GACHAS = ['fgo']
 
 LEAGUE_CATS = ['skins', 'spells', 'items']
+# League room categories that are only played when asked for with -c.
+LEAGUE_EXTRA_CATS = ['augments']
 
 MAL_GENRES = {'action': 1,
               'adventure': 2,

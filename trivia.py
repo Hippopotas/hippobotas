@@ -426,6 +426,7 @@ class QuestionList:
         self.category_params = []
         self.max_rank = 0
         self.am_pages = {}
+        self.tft_augments = None
         self.ended = False
         self.ending_acknowledged = True
         # Why generation gave up, shown to the room instead of the default.
@@ -794,7 +795,8 @@ class QuestionList:
 
         qtypes = []
         if 'all' not in self.categories:
-            qtypes = [c for c in const.LEAGUE_CATS if c in self.categories]
+            qtypes = [c for c in const.LEAGUE_CATS + const.LEAGUE_EXTRA_CATS
+                      if c in self.categories]
 
         if self.excludecats:
             qtypes = [c for c in (qtypes or const.LEAGUE_CATS) if c not in self.excludecats]
@@ -802,7 +804,7 @@ class QuestionList:
         if len(qtypes) == 0:
             qtypes = const.LEAGUE_CATS
         
-        if len(qtypes) == 3:
+        if qtypes == const.LEAGUE_CATS:
             data['qtype'] = random.choices(qtypes, weights=[4, 2, 4])[0]
         else:
             data['qtype'] = random.choice(qtypes)
@@ -812,6 +814,10 @@ class QuestionList:
 
         if data['qtype'] == 'items':
             base = {k:data[k] for k in ('qtype', 'item')}
+        elif data['qtype'] == 'augments':
+            pool = await self.tft_augment_pool(session, data['api'])
+            data['augment'] = random.choice(list(pool))
+            base = {k:data[k] for k in ('qtype', 'augment')}
         else:
             async with session.get(data['api'] + 'champion/{}.json'.format(data['champ'])) as r:
                 resp = await r.text()
@@ -829,6 +835,41 @@ class QuestionList:
 
         return data, base
         
+    async def tft_augment_pool(self, session, api):
+        '''
+        TFT augments from Data Dragon, fetched once per game: maps each
+        augment's base name (tier suffixes like " II" or "+" removed) to
+        its icon file and the full names that count as answers.
+        '''
+        if self.tft_augments:
+            return self.tft_augments
+
+        async with session.get(api + 'tft-augments.json') as r:
+            augments = (await r.json())['data']
+
+        pool = {}
+        seen = {}
+        # Tutorial copies last, so the real augment's icon is preferred.
+        for aug_id in sorted(augments, key=lambda k: k.startswith('TFTTutorial')):
+            aug = augments[aug_id]
+            name = lol_name(aug.get('name'))
+            icon = (aug.get('image') or {}).get('full')
+            # Skip unfilled placeholders such as "Gain @Gold@ Gold".
+            if not name or not icon or '@' in name:
+                continue
+            base_name = re.sub(r'(\s+(I|II|III|IV))?\s*\+*$', '', name) or name
+            key = find_true_name(base_name)
+            if key not in seen:
+                seen[key] = base_name
+                pool[base_name] = {'icon': icon, 'answers': [base_name]}
+            if name not in pool[seen[key]]['answers']:
+                pool[seen[key]]['answers'].append(name)
+
+        if not pool:
+            raise ValueError('Data Dragon returned no TFT augments.')
+        self.tft_augments = pool
+        return pool
+
     async def gen_lol_question(self, session):
         data = {'all_champs': {}, 'champ': '', 'champ_data': {}, 'all_items': {}, 'item': {},
                 'api': const.DDRAGON_API, 'img': const.DDRAGON_IMG}
@@ -861,6 +902,12 @@ class QuestionList:
             img_url = await gen_uhtml_img(await self.check_for_jpg(session, img_url))
             await self.questions.put(['/adduhtml {}, {}'.format(UHTML_NAME, img_url),
                                       [lol_name(data['all_items'][data['item']]['name'])]])
+        elif data['qtype'] == 'augments':
+            augment = self.tft_augments[data['augment']]
+            # The icons are only 48x48, so show them three times larger.
+            img_url = img_tag(data['img'] + 'tft-augment/{}'.format(augment['icon']), (144, 144))
+            await self.questions.put(['/adduhtml {}, {}'.format(UHTML_NAME, img_url),
+                                      augment['answers']])
         elif data['qtype'] == 'skins':
             skin_name = ''
             for skin in data['champ_data']['skins']:

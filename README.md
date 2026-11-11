@@ -229,7 +229,7 @@ USERNAME (optional): Defaults to the caller's username if not set.
 
 ### Categories:
 
-leagueoflegends - items, skins, spells
+leagueoflegends - items, skins, spells, augments (TFT augments; only played when chosen with -c)
 
 videogames - Coming Soon TM
 
