@@ -45,7 +45,8 @@ async def get_steam_user(username, retries=2):
     (steamcommunity.com/id/<name>), using only the official Web API. The
     community profile pages used before are heavily rate limited.
     '''
-    username = (username or '').strip().strip('/')
+    # Saved IDs are read from the CSV as numbers.
+    username = '' if username is None else str(username).strip().strip('/')
     if not username:
         return None
 
