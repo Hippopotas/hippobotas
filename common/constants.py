@@ -83,6 +83,9 @@ DISCORD_TRIVIA_ROLES = {'Driver', 'Head Driver', 'Moderator', 'Owner'}
 DISCORD_TRIVIA_PREFIX = 'discord_'
 # Trivia commands only work in this channel (or threads inside it).
 DISCORD_TRIVIA_CHANNEL = 'trivia'
+# Other commands there only work in channels under these categories
+# (compared by find_true_name, so case, spaces and emoji don't matter).
+DISCORD_COMMAND_CATEGORIES = {'botspam', 'moderation'}
 
 GACHAS = ['fgo']
 

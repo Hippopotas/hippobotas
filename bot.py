@@ -1543,6 +1543,13 @@ def is_discord_trivia_staff(member):
     return any(role.name in const.DISCORD_TRIVIA_ROLES for role in getattr(member, 'roles', []))
 
 
+def in_command_category(channel):
+    ''' Whether a channel (or the channel a thread is in) is under an allowed category. '''
+    channel = getattr(channel, 'parent', None) or channel
+    category = getattr(channel, 'category', None)
+    return category is not None and find_true_name(category.name) in const.DISCORD_COMMAND_CATEGORIES
+
+
 class DiscordBot:
     def __init__(self, ps_bot=None):
         # Anime/manga trivia uses the Showdown bot's AniList/MAL managers.
@@ -1559,6 +1566,10 @@ class DiscordBot:
 
         @bot.command(description="Restarts the bot, reloading its code.", guild_ids=[218560071540408320, 1567948160020643870])
         async def restart_ps(ctx):
+            if ctx.guild_id == const.DISCORD_TRIVIA_GUILD and not in_command_category(ctx.channel):
+                await ctx.send_response('This command only works in the botspam or moderation channels.',
+                                        ephemeral=True)
+                return
             if ctx.guild_id == const.DISCORD_TRIVIA_GUILD and not is_discord_trivia_staff(ctx.author):
                 await ctx.send_response('Only Drivers and above can do that.', ephemeral=True)
                 return
