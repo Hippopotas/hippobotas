@@ -86,6 +86,11 @@ DISCORD_TRIVIA_CHANNEL = 'trivia'
 # Other commands there only work in channels under these categories
 # (compared by find_true_name, so case, spaces and emoji don't matter).
 DISCORD_COMMAND_CATEGORIES = {'botspam', 'moderation'}
+# Commands there that skip the category limit for now and work in any
+# channel. Remove a command from this set to limit it too.
+DISCORD_ANY_CHANNEL_COMMANDS = {'song_add', 'song_rm', 'song_list', 'randsong',
+                                'anime', 'manga', 'randanime', 'randmanga',
+                                'mal_add', 'mal', 'anotd'}
 
 GACHAS = ['fgo']
 

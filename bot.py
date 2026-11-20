@@ -1685,13 +1685,14 @@ def in_command_category(channel):
 
 async def require_command_channel(ctx, staff=False):
     '''
-    In the trivia server, commands only work under the command categories,
+    In the trivia server, commands only work under the command categories
+    (unless listed in DISCORD_ANY_CHANNEL_COMMANDS),
     and staff commands only for Drivers and above. Tells the caller (only
     them) if they can't use the command here.
     '''
     if ctx.guild_id != const.DISCORD_TRIVIA_GUILD:
         return True
-    if not in_command_category(ctx.channel):
+    if ctx.command.name not in const.DISCORD_ANY_CHANNEL_COMMANDS and not in_command_category(ctx.channel):
         where = ' or '.join(sorted(const.DISCORD_COMMAND_CATEGORIES))
         await ctx.respond(f'This command only works in the {where} channels.', ephemeral=True)
         return False
@@ -1699,17 +1700,6 @@ async def require_command_channel(ctx, staff=False):
         await ctx.respond('Only Drivers and above can do that.', ephemeral=True)
         return False
     return True
-
-
-async def require_discord_staff(ctx):
-    '''
-    In the trivia server, only Drivers and above, in any channel. Tells the
-    caller (only them) if they can't use the command.
-    '''
-    if ctx.guild_id != const.DISCORD_TRIVIA_GUILD or is_discord_trivia_staff(ctx.author):
-        return True
-    await ctx.respond('Only Drivers and above can do that.', ephemeral=True)
-    return False
 
 
 def escape_link_text(text):
@@ -1982,7 +1972,7 @@ class DiscordBot:
         async def song_add(ctx,
                            title: discord.Option(str, 'The name of the song'),
                            url: discord.Option(str, 'A YouTube link to the song')):
-            if not await require_discord_staff(ctx):
+            if not await require_command_channel(ctx, staff=True):
                 return
             url = url.strip()
             if not is_url(url):
@@ -1999,7 +1989,7 @@ class DiscordBot:
                            guild_ids=guild_ids)
         async def song_rm(ctx, title: discord.Option(str, 'The name of the song (not case sensitive)',
                                                      autocomplete=song_titles)):
-            if not await require_discord_staff(ctx):
+            if not await require_command_channel(ctx, staff=True):
                 return
             rows = await db.execute("SELECT DISTINCT title FROM songs WHERE room=?", (room,))
             matches = [r[0] for r in rows if find_true_name(r[0]) == find_true_name(title)]
@@ -2015,6 +2005,8 @@ class DiscordBot:
         @bot.slash_command(name='song_list', description=f'List the {room} song pool.', guild_ids=guild_ids)
         async def song_list(ctx):
             ''' Uploads the song pool to pastie.io, like ]song_list. '''
+            if not await require_command_channel(ctx):
+                return
             # The upload can take longer than Discord waits for a reply.
             await ctx.defer()
             msg = f'No songs found for {room}.'
@@ -2043,6 +2035,8 @@ class DiscordBot:
         @bot.slash_command(name='randsong', description=f'Play a random song from the {room} song pool.',
                            guild_ids=guild_ids)
         async def randsong(ctx):
+            if not await require_command_channel(ctx):
+                return
             rows = await db.execute("SELECT title, url FROM songs WHERE room=?", (room,))
             if not rows:
                 await ctx.respond(f'There are no songs in the {room} song pool!', ephemeral=True)
@@ -2076,10 +2070,14 @@ class DiscordBot:
 
         @bot.slash_command(name='anime', description='Look up an anime on AniList.', guild_ids=guild_ids)
         async def anime(ctx, title: discord.Option(str, 'The anime to look up')):
+            if not await require_command_channel(ctx):
+                return
             await search(ctx, 'anime', title)
 
         @bot.slash_command(name='manga', description='Look up a manga on AniList.', guild_ids=guild_ids)
         async def manga(ctx, title: discord.Option(str, 'The manga to look up')):
+            if not await require_command_channel(ctx):
+                return
             await search(ctx, 'manga', title)
 
         # Discord allows at most 100 characters here.
@@ -2087,10 +2085,14 @@ class DiscordBot:
 
         @bot.slash_command(name='randanime', description='Show a random anime.', guild_ids=guild_ids)
         async def randanime(ctx, genres: discord.Option(str, genre_help, required=False, default='')):
+            if not await require_command_channel(ctx):
+                return
             await random_series(ctx, 'anime', genres)
 
         @bot.slash_command(name='randmanga', description='Show a random manga.', guild_ids=guild_ids)
         async def randmanga(ctx, genres: discord.Option(str, genre_help, required=False, default='')):
+            if not await require_command_channel(ctx):
+                return
             await random_series(ctx, 'manga', genres)
 
     def add_mal_commands(self, bot):
@@ -2203,6 +2205,8 @@ class DiscordBot:
 
         @bot.slash_command(name='mal_add', description='Link your MyAnimeList account.', guild_ids=guild_ids)
         async def mal_add(ctx, username: discord.Option(str, 'Your MAL username')):
+            if not await require_command_channel(ctx):
+                return
             await ctx.defer(ephemeral=True)
             msg = for_discord(await mal_man.set_user(mal_key(ctx.author), username.strip()), ctx.author)
             await ctx.respond(discord.utils.escape_markdown(msg), ephemeral=True, allowed_mentions=NO_PINGS)
@@ -2215,6 +2219,8 @@ class DiscordBot:
                       roll_from: discord.Option(str, 'Roll a random series from these lists instead',
                                                 name='roll', choices=['anime', 'manga', 'both'],
                                                 required=False, default=None)):
+            if not await require_command_channel(ctx):
+                return
             member = user or ctx.author
             await ctx.defer()
             if roll_from:
@@ -2231,6 +2237,8 @@ class DiscordBot:
                            guild_ids=guild_ids)
         async def anotd(ctx, user: discord.Option(discord.Member, 'Whose MAL (default: yours)',
                                                   required=False, default=None)):
+            if not await require_command_channel(ctx):
+                return
             await ctx.defer()
             await roll(ctx, user or ctx.author, ['anime', 'manga'], anotd=True)
 
