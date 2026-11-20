@@ -5,6 +5,7 @@ import asyncio
 import datetime
 import discord
 import dotenv
+import html
 import json
 import logging
 import logging.handlers
@@ -22,12 +23,14 @@ import common.constants as const
 from battle import Battle
 from gacha import GachaManager
 from commands import *
+from common.anilist import anilist_num_entries, anilist_post
 from common.arg_parsers import trivia_arg_parser
 from common.connections import ApiManager, DatabaseManager
-from common.mal import MalManager
+from common.mal import MAL_DOWN_MSG, PROFILE_CACHE_TTL, MalManager, list_table
 from common.steam import set_steam_user, show_steam_user, steam_user_rand_series
 from common.tcg import display_mtg_card, display_ptcg_card, display_ygo_card
-from common.utils import find_true_name, gen_uhtml_img, leaderboard_uhtml, birthday_text
+from common.utils import find_true_name, gen_uhtml_img, leaderboard_uhtml, birthday_text, is_url, \
+                         monospace_table_row, pastie_upload
 from room import Room
 from trivia import check_answer, DiscordTriviaGame
 from user import User
@@ -1535,6 +1538,136 @@ class Bot:
             await asyncio.sleep(0.1)
 
 
+# Discord embed colors.
+ANILIST_COLOR = 0x02A9FF
+MAL_COLOR = 0x2E51A2
+# Discord allows more, but long synopses swamp the embed.
+SYNOPSIS_MAX = 1000
+# Autocomplete choices can be at most 100 characters, and at most 25 are shown.
+CHOICE_MAX = 100
+CHOICES_SHOWN = 25
+# Discord users' MAL links share the table with Showdown names, which
+# can't contain a colon.
+MAL_KEY_PREFIX = 'discord:'
+
+NO_PINGS = discord.AllowedMentions.none()
+
+def series_fields(fallback_title):
+    '''
+    The fields asked for each series. Like on Showdown, ]anime and ]manga
+    fall back to the romaji title, and ]randanime/]randmanga to AniList's
+    preferred title, when there's no English one.
+    '''
+    return f'''
+                id
+                idMal
+                title {{
+                    english
+                    {fallback_title}
+                }}
+                coverImage {{
+                    extraLarge
+                }}
+                status
+                episodes
+                chapters
+                description
+                averageScore
+'''
+
+
+def anilist_error(resp):
+    return (resp or {}).get('errors', [{}])[0].get('message', 'unknown error')
+
+
+def series_title(series):
+    ''' The English title, or whichever fallback title the query asked for. '''
+    title = series['title']
+    return title['english'] or title.get('romaji') or title.get('userPreferred')
+
+
+async def anilist_search_data(medium, search, anilist_man):
+    '''
+    AniList's best match for search, fetched the same way as ]anime and
+    ]manga (which return Showdown HTML, so Discord can't use them).
+
+    Returns:
+        (series, error): the series' AniList data, or None and why not.
+    '''
+    query = '''
+    query ($search: String) {
+        Page (page: 1, perPage: 1) {
+            media (type: TYPE_PLACEHOLDER, search: $search, isAdult: false) {
+                FIELDS_PLACEHOLDER
+            }
+        }
+    }
+    '''.replace('TYPE_PLACEHOLDER', medium.upper()).replace('FIELDS_PLACEHOLDER', series_fields('romaji'))
+
+    async with anilist_man.lock():
+        async with aiohttp.ClientSession() as session:
+            async with session.post(const.ANILIST_API, json={'query': query, 'variables': {'search': search}}) as r:
+                resp = await r.json(content_type=None)
+
+                if r.status != 200:
+                    return None, f'Status code {r.status} when fetching {search}: {anilist_error(resp)}'
+
+                series_list = resp['data']['Page']['media']
+                if not series_list:
+                    return None, f'No {medium} found for {search}.'
+                return series_list[0], None
+
+
+async def anilist_rand_data(medium, anilist_man, genres=(), tags=()):
+    '''
+    A random series with at least one of the genres or tags (any series
+    if neither is given), like ]randanime and ]randmanga.
+
+    Returns:
+        (series, error): the series' AniList data, or None and why not.
+    '''
+    category_params = []
+    if genres:
+        category_params.append(f'genre_in: {json.dumps(list(genres))}')
+    if tags:
+        category_params.append(f'tag_in: {json.dumps(list(tags))}')
+    categories = ''.join(f'{p},' for p in category_params)
+
+    query = '''
+    query ($page: Int) {
+        Page (page: $page, perPage: 1) {
+            pageInfo {
+                total
+            }
+            media (CATEGORIES_PLACEHOLDER minimumTagRank: 50, type: TYPE_PLACEHOLDER, isAdult: false) {
+                FIELDS_PLACEHOLDER
+            }
+        }
+    }
+    '''.replace('CATEGORIES_PLACEHOLDER', categories).replace('TYPE_PLACEHOLDER', medium.upper()) \
+       .replace('FIELDS_PLACEHOLDER', series_fields('userPreferred'))
+    query_vars = {'page': 1}
+
+    async with aiohttp.ClientSession() as session:
+        num_entries = await anilist_num_entries(query, query_vars, session, anilist_man)
+        if not num_entries:
+            return None, 'No series found with the given specifications.'
+
+        query_vars['page'] = random.randint(1, num_entries)
+        while True:
+            status, resp = await anilist_post(session, query, query_vars, anilist_man)
+            if status != 200 or not resp:
+                return None, f'Status code {status} when fetching a random {medium}: {anilist_error(resp)}'
+
+            media = resp['data']['Page']['media']
+            if media:
+                return media[0], None
+            if query_vars['page'] <= 1:
+                return None, 'No series found with the given specifications.'
+            # The total can shrink between requests; look earlier.
+            query_vars['page'] //= 2
+
+
 def is_discord_trivia_staff(member):
     ''' Driver and above (or the server owner) in the Discord trivia server. '''
     guild = getattr(member, 'guild', None)
@@ -1550,9 +1683,111 @@ def in_command_category(channel):
     return category is not None and find_true_name(category.name) in const.DISCORD_COMMAND_CATEGORIES
 
 
+async def require_command_channel(ctx, staff=False):
+    '''
+    In the trivia server, commands only work under the command categories,
+    and staff commands only for Drivers and above. Tells the caller (only
+    them) if they can't use the command here.
+    '''
+    if ctx.guild_id != const.DISCORD_TRIVIA_GUILD:
+        return True
+    if not in_command_category(ctx.channel):
+        where = ' or '.join(sorted(const.DISCORD_COMMAND_CATEGORIES))
+        await ctx.respond(f'This command only works in the {where} channels.', ephemeral=True)
+        return False
+    if staff and not is_discord_trivia_staff(ctx.author):
+        await ctx.respond('Only Drivers and above can do that.', ephemeral=True)
+        return False
+    return True
+
+
+async def require_discord_staff(ctx):
+    '''
+    In the trivia server, only Drivers and above, in any channel. Tells the
+    caller (only them) if they can't use the command.
+    '''
+    if ctx.guild_id != const.DISCORD_TRIVIA_GUILD or is_discord_trivia_staff(ctx.author):
+        return True
+    await ctx.respond('Only Drivers and above can do that.', ephemeral=True)
+    return False
+
+
+def escape_link_text(text):
+    ''' Escapes text to go inside [text](url). '''
+    return discord.utils.escape_markdown(text).replace('[', '\\[').replace(']', '\\]')
+
+
+def md_link(text, url):
+    ''' A Discord markdown link. '''
+    return f'[{escape_link_text(text)}]({url})'
+
+
+def plain_text(description, limit):
+    ''' AniList's HTML descriptions, as escaped Discord text of at most limit characters. '''
+    if not description:
+        return 'No synopsis available.'
+    text = re.sub(r'<br\s*/?>', '\n', description, flags=re.IGNORECASE)
+    text = html.unescape(re.sub(r'<[^>]+>', '', text))
+    text = re.sub(r'\n{3,}', '\n\n', text).strip()
+    if len(text) > limit:
+        text = text[:limit].rsplit(' ', 1)[0].rstrip() + '…'
+    return discord.utils.escape_markdown(text)
+
+
+def series_embed(medium, series):
+    ''' A Discord infobox for an AniList anime or manga. '''
+    al_url = f'https://anilist.co/{medium}/{series["id"]}'
+    embed = discord.Embed(title=series_title(series)[:256], url=al_url,
+                          description=plain_text(series['description'], SYNOPSIS_MAX),
+                          color=ANILIST_COLOR)
+    cover = (series.get('coverImage') or {}).get('extraLarge')
+    if cover:
+        embed.set_thumbnail(url=cover)
+
+    parts = 'Episodes' if medium == 'anime' else 'Chapters'
+    score = f'{series["averageScore"]}%' if series['averageScore'] else 'N/A'
+    # Shown as AniList gives them, like on Showdown (e.g. FINISHED, None).
+    embed.add_field(name='Status', value=str(series['status']))
+    embed.add_field(name=parts, value=str(series[parts.lower()]))
+    embed.add_field(name='Score', value=score)
+
+    # Like on Showdown, the MAL link is always shown, even for series
+    # AniList has no MAL ID for.
+    mal_url = f'https://myanimelist.net/{medium}/{series["idMal"]}'
+    embed.add_field(name='Links', value=f'[AniList]({al_url}) · [MAL]({mal_url})', inline=False)
+    return embed
+
+
+def parse_categories(text):
+    '''
+    Picks AniList genres and tags out of text the same way as ]randanime:
+    each word is compared using find_true_name, so multi-word ones are
+    typed without spaces (sliceoflife), and other words are ignored.
+
+    Returns:
+        (genres, tags)
+    '''
+    true_args = list(map(find_true_name, text.split()))
+    genres = [g for g in const.ANILIST_GENRES if find_true_name(g) in true_args]
+    tags = [t for t in list(const.ANILIST_TAGS) if find_true_name(t) in true_args]
+    return genres, tags
+
+
+def mal_link(medium, node):
+    ''' A link to a MAL list entry's series page. '''
+    return md_link(node['title'], f'https://myanimelist.net/{medium}/{node["id"]}')
+
+
+def mal_key(member):
+    ''' The mal_users key for a Discord user. '''
+    return f'{MAL_KEY_PREFIX}{member.id}'
+
+
 class DiscordBot:
     def __init__(self, ps_bot=None):
-        # Anime/manga trivia uses the Showdown bot's AniList/MAL managers.
+        # Trivia and the song/anime/MAL commands use the Showdown bot's
+        # database and AniList/MAL managers.
+        self.ps_bot = ps_bot
         self.trivia = DiscordTriviaGame(const.DISCORD_TRIVIA_GUILD, ps_bot) if ps_bot else None
         self.message_content = True
         self.bot = self.build_bot()
@@ -1566,12 +1801,7 @@ class DiscordBot:
 
         @bot.command(description="Restarts the bot, reloading its code.", guild_ids=[218560071540408320, 1567948160020643870])
         async def restart_ps(ctx):
-            if ctx.guild_id == const.DISCORD_TRIVIA_GUILD and not in_command_category(ctx.channel):
-                await ctx.send_response('This command only works in the botspam or moderation channels.',
-                                        ephemeral=True)
-                return
-            if ctx.guild_id == const.DISCORD_TRIVIA_GUILD and not is_discord_trivia_staff(ctx.author):
-                await ctx.send_response('Only Drivers and above can do that.', ephemeral=True)
+            if not await require_command_channel(ctx, staff=True):
                 return
             await ctx.send_response("Restarting bot.", ephemeral=True)
             try:
@@ -1587,6 +1817,10 @@ class DiscordBot:
 
         if self.trivia is not None:
             self.add_trivia_commands(bot)
+        if self.ps_bot is not None:
+            self.add_song_commands(bot)
+            self.add_animanga_commands(bot)
+            self.add_mal_commands(bot)
 
         return bot
 
@@ -1730,6 +1964,275 @@ class DiscordBot:
                     or message.guild.id != const.DISCORD_TRIVIA_GUILD):
                 return
             await game.handle_guess(message)
+
+    def add_song_commands(self, bot):
+        ''' Song commands, sharing the animeandmanga room's song pool. '''
+        guild_ids = [const.DISCORD_TRIVIA_GUILD]
+        db = self.ps_bot.roomdata_man
+        room = const.ANIME_ROOM
+
+        async def song_titles(actx: discord.AutocompleteContext):
+            rows = await db.execute("SELECT title FROM songs WHERE room=?", (room,))
+            typed = (actx.value or '').lower()
+            titles = sorted({r[0] for r in rows if typed in r[0].lower() and len(r[0]) <= CHOICE_MAX},
+                            key=str.lower)
+            return titles[:CHOICES_SHOWN]
+
+        @bot.slash_command(name='song_add', description=f'Add a song to the {room} song pool.', guild_ids=guild_ids)
+        async def song_add(ctx,
+                           title: discord.Option(str, 'The name of the song'),
+                           url: discord.Option(str, 'A YouTube link to the song')):
+            if not await require_discord_staff(ctx):
+                return
+            url = url.strip()
+            if not is_url(url):
+                await ctx.respond('Please give a valid URL.', ephemeral=True)
+                return
+            if await db.execute("SELECT 1 FROM songs WHERE room=? AND url=?", (room, url)):
+                await ctx.respond(f'That URL is already in the {room} song pool.', ephemeral=True)
+                return
+            await db.execute("INSERT INTO songs (room, title, url) VALUES (?, ?, ?)", (room, title, url))
+            await ctx.respond(f'Added **{discord.utils.escape_markdown(title)}** to the {room} song pool.',
+                              allowed_mentions=NO_PINGS)
+
+        @bot.slash_command(name='song_rm', description=f'Remove a song from the {room} song pool.',
+                           guild_ids=guild_ids)
+        async def song_rm(ctx, title: discord.Option(str, 'The name of the song (not case sensitive)',
+                                                     autocomplete=song_titles)):
+            if not await require_discord_staff(ctx):
+                return
+            rows = await db.execute("SELECT DISTINCT title FROM songs WHERE room=?", (room,))
+            matches = [r[0] for r in rows if find_true_name(r[0]) == find_true_name(title)]
+            if not matches:
+                await ctx.respond(f'**{discord.utils.escape_markdown(title)}** is not in the song pool.',
+                                  ephemeral=True, allowed_mentions=NO_PINGS)
+                return
+            for match in matches:
+                await db.execute("DELETE FROM songs WHERE room=? AND title=?", (room, match))
+            await ctx.respond(f'Deleted all songs called **{discord.utils.escape_markdown(title)}** '
+                              f'from the {room} song pool.', allowed_mentions=NO_PINGS)
+
+        @bot.slash_command(name='song_list', description=f'List the {room} song pool.', guild_ids=guild_ids)
+        async def song_list(ctx):
+            ''' Uploads the song pool to pastie.io, like ]song_list. '''
+            # The upload can take longer than Discord waits for a reply.
+            await ctx.defer()
+            msg = f'No songs found for {room}.'
+
+            song_exists = await db.execute("SELECT title, url FROM songs WHERE room=?", (room,))
+
+            if song_exists:
+                room_songs = {}
+                for song in song_exists:
+                    room_songs[song[0]] = song[1]
+
+                header_text = monospace_table_row([('Song Title', 100),
+                                                   ('Link', 25)])
+                header_text += '\n' + '-'*146
+                box_text = ''
+                for s in sorted(room_songs.keys()):
+                    box_text += monospace_table_row([(s, 100),
+                                                     (room_songs[s], 25)])
+                    box_text += '\n'
+
+                paste_url = await pastie_upload(f'{header_text}\n{box_text}')
+                msg = paste_url or 'Unable to generate song list at this time.'
+
+            await ctx.respond(msg)
+
+        @bot.slash_command(name='randsong', description=f'Play a random song from the {room} song pool.',
+                           guild_ids=guild_ids)
+        async def randsong(ctx):
+            rows = await db.execute("SELECT title, url FROM songs WHERE room=?", (room,))
+            if not rows:
+                await ctx.respond(f'There are no songs in the {room} song pool!', ephemeral=True)
+                return
+            title, url = random.choice(rows)
+            # The bare URL on its own line lets Discord show the video player.
+            await ctx.respond(f'\U0001F3B5 **{discord.utils.escape_markdown(title)}**\n{url}',
+                              allowed_mentions=NO_PINGS)
+
+    def add_animanga_commands(self, bot):
+        ''' AniList lookups, like ]anime, ]manga, ]randanime and ]randmanga. '''
+        guild_ids = [const.DISCORD_TRIVIA_GUILD]
+        anilist_man = self.ps_bot.anilist_man
+
+        async def search(ctx, medium, title):
+            await ctx.defer()
+            series, error = await anilist_search_data(medium, title, anilist_man)
+            if error:
+                await ctx.respond(discord.utils.escape_markdown(error), allowed_mentions=NO_PINGS)
+                return
+            await ctx.respond(embed=series_embed(medium, series))
+
+        async def random_series(ctx, medium, genres):
+            genre_list, tag_list = parse_categories(genres)
+            await ctx.defer()
+            series, error = await anilist_rand_data(medium, anilist_man, genres=genre_list, tags=tag_list)
+            if error:
+                await ctx.respond(discord.utils.escape_markdown(error))
+                return
+            await ctx.respond(embed=series_embed(medium, series))
+
+        @bot.slash_command(name='anime', description='Look up an anime on AniList.', guild_ids=guild_ids)
+        async def anime(ctx, title: discord.Option(str, 'The anime to look up')):
+            await search(ctx, 'anime', title)
+
+        @bot.slash_command(name='manga', description='Look up a manga on AniList.', guild_ids=guild_ids)
+        async def manga(ctx, title: discord.Option(str, 'The manga to look up')):
+            await search(ctx, 'manga', title)
+
+        # Discord allows at most 100 characters here.
+        genre_help = 'AniList genres or tags to pick from; type them without spaces, e.g. "romance sliceoflife"'
+
+        @bot.slash_command(name='randanime', description='Show a random anime.', guild_ids=guild_ids)
+        async def randanime(ctx, genres: discord.Option(str, genre_help, required=False, default='')):
+            await random_series(ctx, 'anime', genres)
+
+        @bot.slash_command(name='randmanga', description='Show a random manga.', guild_ids=guild_ids)
+        async def randmanga(ctx, genres: discord.Option(str, genre_help, required=False, default='')):
+            await random_series(ctx, 'manga', genres)
+
+    def add_mal_commands(self, bot):
+        ''' MAL commands, like ]mal_add, ]mal and ]anotd, with links kept per Discord account. '''
+        guild_ids = [const.DISCORD_TRIVIA_GUILD]
+        mal_man = self.ps_bot.mal_man
+        # Recently fetched lists: lowercase MAL name -> (time, lists).
+        list_cache = {}
+
+        def for_discord(msg, member):
+            '''
+            The MAL manager's messages name users by their mal_users key and
+            mention ]commands; show the display name and /commands instead.
+            '''
+            return msg.replace(mal_key(member), member.display_name).replace(']mal', '/mal')
+
+        async def profile_lists(member):
+            '''
+            Someone's whole anime and manga lists, as ]mal reads them.
+
+            Returns:
+                (mal_user, lists, error): lists maps 'anime' and 'manga' to their
+                entries (None if that list is private). On failure, error says why.
+            '''
+            mal_user = await mal_man.mal_of_ps(mal_key(member))
+            if not mal_user:
+                return None, None, (f'{member.display_name} does not have a linked MAL account. '
+                                    'They can link one with /mal_add.')
+
+            cached = list_cache.get(mal_user.lower())
+            if cached and time.time() - cached[0] < PROFILE_CACHE_TTL:
+                return mal_user, cached[1], None
+
+            lists = {}
+            for medium in ('anime', 'manga'):
+                code, entries = await mal_man.fetch_full_list(mal_user, medium)
+                if code == 404:
+                    mal_man.missing_accounts.add(list_table(mal_user))
+                    return mal_user, None, (f"{mal_user} wasn't found on MAL. "
+                                            "They may need to update their account with /mal_add.")
+                if code == 403:
+                    lists[medium] = None    # This list is private.
+                elif entries is None:
+                    return mal_user, None, MAL_DOWN_MSG
+                else:
+                    lists[medium] = entries
+
+            if lists['anime'] is None and lists['manga'] is None:
+                return mal_user, None, f"{mal_user}'s MAL lists are private, so their profile can't be shown."
+
+            # Remember the NSFW ratings seen, which rolls and trivia also use.
+            seen = [(medium, e['node']['id'], e['node']['title'], e['node'].get('nsfw', 'gray'))
+                    for medium, entries in lists.items() if entries for e in entries]
+            if seen:
+                await mal_man.store_series(seen)
+
+            list_cache[mal_user.lower()] = (time.time(), lists)
+            return mal_user, lists, None
+
+        def latest_update(lists):
+            ''' (medium, entry) of the SFW series most recently updated, or None. '''
+            recent = [(e.get('list_status', {}).get('updated_at', ''), medium, e)
+                      for medium, entries in lists.items() if entries for e in entries
+                      if e['node'].get('nsfw') == 'white']
+            if not recent:
+                return None
+            _, medium, entry = max(recent, key=lambda r: r[0])
+            return medium, entry
+
+        async def profile_embed(member):
+            ''' (embed, None) summarizing someone's MAL, or (None, why not). '''
+            mal_user, lists, error = await profile_lists(member)
+            if error:
+                return None, error
+
+            embed = discord.Embed(title=f"{mal_user}'s MAL", url=f'https://myanimelist.net/profile/{mal_user}',
+                                  color=MAL_COLOR)
+            embed.set_author(name=member.display_name, icon_url=member.display_avatar.url)
+
+            for medium, current, progress in (('anime', 'Watching', 'Episodes'),
+                                              ('manga', 'Reading', 'Chapters')):
+                entries = lists[medium]
+                if entries is None:
+                    value = 'Private'
+                else:
+                    stats = mal_man.list_stats(entries, medium)
+                    value = (f'Completed: {stats["completed"]}\n{current}: {stats["current"]}\n'
+                             f'{progress}: {stats["progress"]}\nMean score: {stats["mean"]}')
+                    top = mal_man.top_rated(entries)
+                    if top:
+                        value += f'\nTop rated: {mal_link(medium, top["node"])}'
+                embed.add_field(name=medium.title(), value=value[:1024])
+
+            latest = latest_update(lists)
+            if latest:
+                medium, entry = latest
+                node = entry['node']
+                embed.description = f'Latest update: {mal_link(medium, node)}'
+                pictures = node.get('main_picture') or {}
+                picture = pictures.get('large') or pictures.get('medium')
+                if picture:
+                    embed.set_thumbnail(url=picture)
+            return embed, None
+
+        async def roll(ctx, member, media, anotd):
+            msg = for_discord(await mal_man.user_rand_series(mal_key(member), media, anotd=anotd), member)
+            if msg.startswith('rolled '):
+                msg = f'{ctx.author.display_name} {msg}'
+            await ctx.respond(discord.utils.escape_markdown(msg), allowed_mentions=NO_PINGS)
+
+        @bot.slash_command(name='mal_add', description='Link your MyAnimeList account.', guild_ids=guild_ids)
+        async def mal_add(ctx, username: discord.Option(str, 'Your MAL username')):
+            await ctx.defer(ephemeral=True)
+            msg = for_discord(await mal_man.set_user(mal_key(ctx.author), username.strip()), ctx.author)
+            await ctx.respond(discord.utils.escape_markdown(msg), ephemeral=True, allowed_mentions=NO_PINGS)
+
+        @bot.slash_command(name='mal', description="Show someone's MAL profile, or roll a series from their lists.",
+                           guild_ids=guild_ids)
+        async def mal(ctx,
+                      user: discord.Option(discord.Member, 'Whose MAL (default: yours)',
+                                           required=False, default=None),
+                      roll_from: discord.Option(str, 'Roll a random series from these lists instead',
+                                                name='roll', choices=['anime', 'manga', 'both'],
+                                                required=False, default=None)):
+            member = user or ctx.author
+            await ctx.defer()
+            if roll_from:
+                media = ['anime', 'manga'] if roll_from == 'both' else [roll_from]
+                await roll(ctx, member, media, anotd=False)
+                return
+            embed, error = await profile_embed(member)
+            if error:
+                await ctx.respond(discord.utils.escape_markdown(error), allowed_mentions=NO_PINGS)
+                return
+            await ctx.respond(embed=embed)
+
+        @bot.slash_command(name='anotd', description="Roll anime of the day from someone's MAL, skipping banned series.",
+                           guild_ids=guild_ids)
+        async def anotd(ctx, user: discord.Option(discord.Member, 'Whose MAL (default: yours)',
+                                                  required=False, default=None)):
+            await ctx.defer()
+            await roll(ctx, user or ctx.author, ['anime', 'manga'], anotd=True)
 
     async def start(self):
         # Discord being unavailable shouldn't take the Showdown bot down with it.
